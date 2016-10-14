@@ -1,18 +1,48 @@
 /*** Mbed Includes ***/
 #include "SimpleSpirit1.h"
+#include "radio_spi.h"
 
 
 /*** Macros from Cube Implementation ***/
-#define CLEAR_TXBUF()           (spirit_txbuf[0] = 0)
-#define CLEAR_RXBUF()           (spirit_rxbuf[0] = 0)
+#define CLEAR_TXBUF()		(spirit_txbuf[0] = 0)
+#define CLEAR_RXBUF()		(spirit_rxbuf[0] = 0)
 /* transceiver state. */
 #define ON     0
 #define OFF    1
 
+#ifndef NDEBUG
+#include <stdio.h>
+#define PRINTF(...) printf(__VA_ARGS__)
+#else
+#define PRINTF(...)
+#endif
 
-SimpleSpirit1 *SimpleSpirit1::_singleton = NULL;
+#if NULLRDC_CONF_802154_AUTOACK
+#define ACK_LEN 3
+static int wants_an_ack = 0; /* The packet sent expects an ack */
+//#define ACKPRINTF printf
+#define ACKPRINTF(...)
+#endif /* NULLRDC_CONF_802154_AUTOACK */
+
+#define SPIRIT_GPIO_IRQ		(SPIRIT_GPIO_3)
+
+#define SPIRIT1_STATUS()	(arch_refresh_status() & SPIRIT1_STATE_STATEBITS)
+
+#define SABORT_WAIT_US		(400)
+
+#define BUSYWAIT_UNTIL(cond, millisecs)                                        					\
+  do {                                                                 					 		\
+    uint32_t start = _busywait_timer.read_ms();                         							\
+    while (!(cond) && ((((uint32_t)(_busywait_timer.read_ms())) - start) < (uint32_t)millisecs));	\
+  } while(0)
+
 
 /*** Class Implementation ***/
+/** Static Class Variables **/
+SimpleSpirit1 *SimpleSpirit1::_singleton = NULL;
+Timer SimpleSpirit1::_busywait_timer;
+
+/** Constructor **/
 SimpleSpirit1::SimpleSpirit1(PinName mosi, PinName miso, PinName sclk,
 			     PinName irq, PinName cs, PinName sdn,
 			     PinName led) :
@@ -20,10 +50,11 @@ SimpleSpirit1::SimpleSpirit1(PinName mosi, PinName miso, PinName sclk,
     _irq(irq),
     _chip_select(cs),
     _shut_down(sdn),
-    _led(led),
-    _nr_of_irq_disables(0)
+    _led(led)
 {
-    /* reset irq disable counter & disable irq */
+    /* reset irq disable counter and irq callback & disable irq */
+	_nr_of_irq_disables = 0;
+	_current_irq_callback = NULL;
     disable_irq();
 
     /* unselect chip */
@@ -32,8 +63,18 @@ SimpleSpirit1::SimpleSpirit1(PinName mosi, PinName miso, PinName sclk,
     /* configure spi */
     _spi.format(8, 0); /* 8-bit, mode = 0, [order = SPI_MSB] only available in mbed3 */
     _spi.frequency(5000000); // 5MHz
+
+    /* start timer */
+    _busywait_timer.start();
+
+    /* init cube vars */
+    spirit_on = OFF;
+    packet_is_prepared = 0;
+    receiving_packet = 0;
+    just_got_an_ack = 0;
 }
 
+/** Init Function **/
 void SimpleSpirit1::init() {
     /* set frequencies */
     radio_set_xtal_freq(XTAL_FREQUENCY);
@@ -109,3 +150,214 @@ void SimpleSpirit1::init() {
     };
     spirit_gpio_init(&x_gpio_init);
 }
+
+/** Prepare the radio with a packet to be sent. **/
+int SimpleSpirit1::prepare(const void *payload, unsigned short payload_len) {
+	PRINTF("Spirit1: prep %u\n", payload_len);
+	packet_is_prepared = 0;
+
+	/* Checks if the payload length is supported */
+	if(payload_len > MAX_PACKET_LEN) {
+		return RADIO_TX_ERR;
+	}
+
+	/* Should we delay for an ack? */
+#if NULLRDC_CONF_802154_AUTOACK
+	frame802154_t info154;
+	wants_an_ack = 0;
+	if(payload_len > ACK_LEN
+			&& frame802154_parse((char*)payload, payload_len, &info154) != 0) {
+		if(info154.fcf.frame_type == FRAME802154_DATAFRAME
+				&& info154.fcf.ack_required != 0) {
+			wants_an_ack = 1;
+		}
+	}
+#endif /* NULLRDC_CONF_802154_AUTOACK */
+
+	/* Sets the length of the packet to send */
+	disable_irq();
+	cmd_strobe_command(SPIRIT1_STROBE_FTX);
+	pkt_basic_set_payload_length(payload_len);
+	spi_write_linear_fifo(payload_len, (uint8_t *)payload);
+	enable_irq();
+
+	PRINTF("PREPARE OUT\n");
+
+	packet_is_prepared = 1;
+	return RADIO_TX_OK;
+}
+
+/** Send the packet that has previously been prepared. **/
+int SimpleSpirit1::transmit(unsigned short payload_len) {
+	/* This function blocks until the packet has been transmitted */
+	//rtimer_clock_t rtimer_txdone, rtimer_rxack;
+
+	PRINTF("TRANSMIT IN\n");
+	if(!packet_is_prepared) {
+		return RADIO_TX_ERR;
+	}
+
+	/* Stores the length of the packet to send */
+	/* Others spirit_radio_prepare will be in hold */
+	spirit_txbuf[0] = payload_len;
+
+	/* Puts the SPIRIT1 in TX state */
+	receiving_packet = 0;
+	set_ready_state();
+	cmd_strobe_command(SPIRIT1_STROBE_TX);
+	just_got_an_ack = 0;
+	BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_TX, 1);
+	//BUSYWAIT_UNTIL(SPIRIT1_STATUS() != SPIRIT1_STATE_TX, 4); //For GFSK with high data rate
+	BUSYWAIT_UNTIL(SPIRIT1_STATUS() != SPIRIT1_STATE_TX, 50); //For FSK with low data rate
+
+	/* Reset radio - needed for immediate RX of ack */
+	CLEAR_TXBUF();
+	CLEAR_RXBUF();
+	disable_irq();
+	irq_clear_status();
+	cmd_strobe_command(SPIRIT1_STROBE_SABORT);
+	wait_us(SABORT_WAIT_US);
+	cmd_strobe_command(SPIRIT1_STROBE_READY);
+	BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_READY, 1);
+	cmd_strobe_command(SPIRIT1_STROBE_RX);
+	BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, 1);
+	enable_irq();
+
+#if XXX_ACK_WORKAROUND
+	just_got_an_ack = 1;
+#endif /* XXX_ACK_WORKAROUND */
+
+#if NULLRDC_CONF_802154_AUTOACK
+	if (wants_an_ack) {
+		rtimer_txdone = _busywait_timer.read_ms();
+		BUSYWAIT_UNTIL(just_got_an_ack, 2);
+		rtimer_rxack = _busywait_timer.read_ms();
+
+		if(just_got_an_ack) {
+			ACKPRINTF("debug_ack: ack received after %u ms\n",
+					(uint32_t)(rtimer_rxack - rtimer_txdone));
+		} else {
+			ACKPRINTF("debug_ack: no ack received\n");
+		}
+	}
+#endif /* NULLRDC_CONF_802154_AUTOACK */
+
+	PRINTF("TRANSMIT OUT\n");
+
+	CLEAR_TXBUF();
+
+	packet_is_prepared = 0;
+
+	wait_us(1);
+
+	return RADIO_TX_OK;
+}
+
+/** Set Ready State **/
+void SimpleSpirit1::set_ready_state(void) {
+  PRINTF("READY IN\n");
+
+  irq_clear_status();
+  disable_irq();
+
+  if(SPIRIT1_STATUS() == SPIRIT1_STATE_STANDBY) {
+	  cmd_strobe_command(SPIRIT1_STROBE_READY);
+  } else if(SPIRIT1_STATUS() == SPIRIT1_STATE_RX) {
+	  cmd_strobe_command(SPIRIT1_STROBE_SABORT);
+	  irq_clear_status();
+  }
+
+  enable_irq();
+
+  PRINTF("READY OUT\n");
+}
+
+int SimpleSpirit1::radio_off(void) {
+  PRINTF("Spirit1: ->off\n");
+  if(spirit_on == ON) {
+    /* Disables the mcu to get IRQ from the SPIRIT1 */
+    disable_irq();
+
+    /* first stop rx/tx */
+    cmd_strobe_command(SPIRIT1_STROBE_SABORT);
+
+    /* Clear any pending irqs */
+    irq_clear_status();
+
+    BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_READY, 5);
+    if(SPIRIT1_STATUS() != SPIRIT1_STATE_READY) {
+      PRINTF("Spirit1: failed off->ready\n");
+      return 1;
+    }
+
+    /* Puts the SPIRIT1 in STANDBY */
+    cmd_strobe_command(SPIRIT1_STROBE_STANDBY);
+    BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_STANDBY, 5);
+    if(SPIRIT1_STATUS() != SPIRIT1_STATE_STANDBY) {
+      PRINTF("Spirit1: failed off->standby\n");
+      return 1;
+    }
+
+    spirit_on = OFF;
+    CLEAR_TXBUF();
+    CLEAR_RXBUF();
+  }
+  PRINTF("Spirit1: off.\n");
+  return 0;
+}
+
+int SimpleSpirit1::radio_on(void) {
+  PRINTF("Spirit1: on\n");
+  cmd_strobe_command(SPIRIT1_STROBE_SABORT);
+  wait_us(SABORT_WAIT_US);
+  if(spirit_on == OFF) {
+    /* ensure we are in READY state as we go from there to Rx */
+    cmd_strobe_command(SPIRIT1_STROBE_READY);
+    BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_READY, 5);
+    if(SPIRIT1_STATUS() != SPIRIT1_STATE_READY) {
+      PRINTF("Spirit1: failed to turn on\n");
+	  while(1);
+      //return 1;
+    }
+
+    /* now we go to Rx */
+    cmd_strobe_command(SPIRIT1_STROBE_RX);
+    BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, 5);
+    if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX) {
+      PRINTF("Spirit1: failed to enter rx\n");
+	  while(1);
+      //return 1;
+    }
+
+    /* Enables the mcu to get IRQ from the SPIRIT1 */
+    spirit_on = ON;
+    if((_current_irq_callback != NULL) && (*_current_irq_callback)) {
+    	enable_irq();
+    }
+  }
+
+  return 0;
+}
+
+uint16_t SimpleSpirit1::arch_refresh_status(void) {
+  uint16_t mcstate;
+  uint8_t header[2];
+  header[0]=READ_HEADER;
+  header[1]=MC_STATE1_BASE;
+
+  /* Puts the SPI chip select low to start the transaction */
+  chip_sync_select();
+
+  /* Write the aHeader bytes and read the SPIRIT1 status bytes */
+  mcstate = _spi.write(header[0]);
+  mcstate = mcstate<<8;
+
+  /* Write the aHeader bytes and read the SPIRIT1 status bytes */
+  mcstate |= _spi.write(header[1]);
+
+  /* Puts the SPI chip select high to end the transaction */
+  chip_sync_unselect();
+
+  return mcstate;
+}
+

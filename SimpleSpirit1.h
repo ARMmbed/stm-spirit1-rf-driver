@@ -11,7 +11,6 @@
 
 /*** Contiki Lib Includes ***/
 #include "spirit1.h"
-#include "st-lib.h"
 #include "spirit1-config.h"
 #include "spirit1-const.h"
 
@@ -41,6 +40,9 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     DigitalOut _shut_down; // PA_10 (D2) ('1' == shut_down)
     DigitalOut _led; // PB_4 (D5) (optional)
 
+    static Timer _busywait_timer;
+    Callback<void()> *_current_irq_callback;
+
     /** Static Variables from Cube Implementation **/
     /*
      * The buffers which hold incoming data.
@@ -50,14 +52,14 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     uint8_t spirit_rxbuf[MAX_PACKET_LEN+1];
     uint8_t spirit_txbuf[MAX_PACKET_LEN+1-SPIRIT_MAX_FIFO_LEN];
     volatile unsigned int spirit_on;
-
+    volatile uint8_t receiving_packet;
+    int packet_is_prepared;
+    int just_got_an_ack;
 
     /** Low Level Instance Variables **/
     unsigned int _nr_of_irq_disables;
 
-    /** Low Level Ins
-    	return *_singleton;
-     * tance Methods **/
+    /** Low Level Instance Methods **/
     void disable_irq(void) {
     	_irq.disable_irq();
     	_nr_of_irq_disables++;
@@ -83,6 +85,25 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     	wait_us(1); // heuristic value
     }
 
+    /**
+     * @brief      Write and read a buffer to/from the SPI peripheral device at the same time
+     *             in 8-bit data mode using synchronous SPI communication.
+     * @param[in]  pBufferToWrite pointer to the buffer of data to send.
+     * @param[out] pBufferToRead pointer to the buffer to read data into.
+     * @param[in]  NumBytes number of bytes to read and write.
+     * @retval     0 if ok.
+     * @retval     -1 if data format error.
+     * @note       When using the SPI in Interrupt-mode, remember to disable interrupts
+     *             before calling this function and to enable them again after.
+     */
+    void spi_write_read(uint8_t* pBufferToWrite, uint8_t* pBufferToRead, uint16_t NumBytes)
+    {
+        /* Read and write data at the same time. */
+    	for (int i = 0; i < NumBytes; i++) {
+            pBufferToRead[i] = _spi.write(pBufferToWrite[i]);
+    	}
+    }
+
     /** Radio Instance Methods **/
     void radio_set_xtal_freq(uint32_t freq) {
     	SpiritRadioSetXtalFrequency(freq);
@@ -99,7 +120,7 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     uint8_t radio_init(SRadioInit *init_struct) {
     	return SpiritRadioInit(init_struct);
     }
-    
+
     void radio_persisten_rx(SpiritFunctionalState xNewState) {
     	SpiritRadioPersistenRx(xNewState);
     }
@@ -113,7 +134,11 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     	SpiritPktBasicInit(pxPktBasicInit);
     }
 
-    /** IRQ Instance Methods **/
+    void pkt_basic_set_payload_length(uint16_t nPayloadLength) {
+    	SpiritPktBasicSetPayloadLength(nPayloadLength);
+    }
+
+	/** IRQ Instance Methods **/
     void irq_de_init(SpiritIrqs* pxIrqInit) {
     	SpiritIrqDeInit(pxIrqInit);
     }
@@ -166,6 +191,15 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     void cmd_strobe_command(uint8_t cmd) {
     	SpiritCmdStrobeCommand((SpiritCmd)cmd);
     }
+
+    /** SPI Instance Methods **/
+    StatusBytes spi_write_linear_fifo(uint8_t cNbBytes, uint8_t* pcBuffer) {
+    	return SdkEvalSpiWriteFifo(cNbBytes, pcBuffer);
+    }
+
+    /** Internal Spirit Methods */
+    void set_ready_state(void);
+    uint16_t arch_refresh_status(void);
 
     /** Friend Functions **/
     friend StatusBytes SdkEvalSpiWriteRegisters(uint8_t cRegAddress, uint8_t cNbBytes, uint8_t* pcBuffer);
@@ -230,13 +264,22 @@ public:
 
     /** Attach a function to be called when a SPI interrupt occurs
      *
-     *  @param func A pointer to a void function, or 0 to set as none
+     *  @param func A void() callback, or 0 to set as none
      *
      *  @note  Function 'func' will be executed in interrupt context!
-     *  @note  This function enables the SPI interrupt!
      */
-    void attach_irq(Callback<void()> &func) {
+    void attach_irq(Callback<void()> func) {
     	_irq.fall(func);
-    	enable_irq();
+    	_current_irq_callback = &func;
     }
+
+    /** Prepare the radio with a packet to be sent. */
+    int prepare(const void *payload, unsigned short payload_len);
+
+    /** Send the packet that has previously been prepared. */
+    int transmit(unsigned short payload_len);
+
+    /** Switch Radio On/Off **/
+    int radio_on(void);
+    int radio_off(void);
 };

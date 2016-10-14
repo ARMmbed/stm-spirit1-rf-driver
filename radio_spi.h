@@ -53,7 +53,8 @@ extern "C" {
 #endif
 #include "SPIRIT_Config.h"
 #include "radio_spi.h" 
-#include "spirit1-arch.h"
+// #include "spirit1-arch.h"
+
 /**
  * @addtogroup BSP
  * @{
