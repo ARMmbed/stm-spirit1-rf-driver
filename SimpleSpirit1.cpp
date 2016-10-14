@@ -32,10 +32,12 @@ SimpleSpirit1::SimpleSpirit1(PinName mosi, PinName miso, PinName sclk,
     /* configure spi */
     _spi.format(8, 0); /* 8-bit, mode = 0, [order = SPI_MSB] only available in mbed3 */
     _spi.frequency(5000000); // 5MHz
+}
 
+void SimpleSpirit1::init() {
     /* set frequencies */
     radio_set_xtal_freq(XTAL_FREQUENCY);
-    mgmt_set_freq_base(XTAL_FREQUENCY);
+    mgmt_set_freq_base((uint32_t)BASE_FREQUENCY);
 
     /* restart board */
     enter_shutdown();

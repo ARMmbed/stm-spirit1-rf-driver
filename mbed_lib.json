@@ -1,4 +1,4 @@
 {
     "name": "myspirit1",
-    "macros": ["USE_STM32F4XX_NUCLEO", "X_NUCLEO_IDS01A4"]
+    "macros": ["USE_STM32F4XX_NUCLEO", "X_NUCLEO_IDS01A4", "SPIRIT_USE_FULL_ASSERT"]
 }

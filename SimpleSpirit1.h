@@ -26,7 +26,7 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
 	static SimpleSpirit1 *_singleton;
 
     /** Communication Interface Instance Variables **/
-	SPI _spi; // betzw - NOTE: Arduino pins are valid for NUCLEO-F401RE
+	SPI _spi; // betzw - NOTE: Arduino pins are valid only for NUCLEO-F401RE
               // mosi: PA_7 (D11)
               // miso: PA_6 (D12)
               // sclk: PB_3 (D3) or
@@ -36,10 +36,10 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
               // mode: 0
               // ordr: MSB
               // freq: max 10MHz
-    InterruptIn _irq; // PC_7 (falling)
-    DigitalOut _chip_select; // PB_6 ('1' == chip unselected)
-    DigitalOut _shut_down; // PA_10 ('1' == shut_down) 
-    DigitalOut _led; // PB_4 (optional)
+    InterruptIn _irq; // PC_7 (D9) (falling)
+    DigitalOut _chip_select; // PB_6 (D10) ('1' == chip unselected)
+    DigitalOut _shut_down; // PA_10 (D2) ('1' == shut_down)
+    DigitalOut _led; // PB_4 (D5) (optional)
 
     /** Static Variables from Cube Implementation **/
     /*
@@ -193,6 +193,9 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     	enable_irq();
     }
 
+    /** Init Instance Method **/
+    void init(void);
+
     /** Constructor **/
     SimpleSpirit1(PinName mosi, PinName miso, PinName sclk,
 		  PinName irq, PinName cs, PinName sdn,
@@ -209,8 +212,9 @@ public:
     	if(_singleton == NULL) {
     		_singleton = new SimpleSpirit1(mosi, miso, sclk,
     				irq, cs, sdn, led);
+    		_singleton->init();
     	} else {
-    		error("SimpleSpirit1 singleton already created!");
+    		error("SimpleSpirit1 singleton already created!\n");
     	}
 
     	return *_singleton;
@@ -218,7 +222,7 @@ public:
 
     static SimpleSpirit1& Instance() {
     	if(_singleton == NULL) {
-    		error("SimpleSpirit1 must be created before used!");
+    		error("SimpleSpirit1 must be created before used!\n");
     	}
 
     	return *_singleton;
