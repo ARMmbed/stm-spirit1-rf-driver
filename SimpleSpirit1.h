@@ -15,6 +15,12 @@
 #include "spirit1-const.h"
 
 
+/*** Macros from Cube Implementation ***/
+/* transceiver state. */
+#define ON     0
+#define OFF    1
+
+
 /*** Missing Cube External Declarations ***/
 extern "C" void SpiritManagementSetFrequencyBase(uint32_t);
 
@@ -41,7 +47,7 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     DigitalOut _led; // PB_4 (D5) (optional)
 
     static Timer _busywait_timer;
-    Callback<void()> *_current_irq_callback;
+    Callback<void()> _current_irq_callback;
 
     /** Static Variables from Cube Implementation **/
     /*
@@ -49,24 +55,27 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
      * The +1 because of the first byte,
      * which will contain the length of the packet.
      */
-    uint8_t spirit_rxbuf[MAX_PACKET_LEN+1];
-    uint8_t spirit_txbuf[MAX_PACKET_LEN+1-SPIRIT_MAX_FIFO_LEN];
+    uint8_t spirit_rx_buf[MAX_PACKET_LEN];
+    uint16_t spirit_tx_len;
+    uint16_t spirit_rx_len;
     volatile unsigned int spirit_on;
     volatile uint8_t receiving_packet;
     int packet_is_prepared;
     int just_got_an_ack;
+    uint16_t last_rssi; //MGR
+    uint16_t last_lqi;  //MGR
 
     /** Low Level Instance Variables **/
     unsigned int _nr_of_irq_disables;
 
     /** Low Level Instance Methods **/
-    void disable_irq(void) {
+    void disable_spirit_irq(void) {
     	_irq.disable_irq();
     	_nr_of_irq_disables++;
     	MBED_ASSERT(_nr_of_irq_disables != 0);
     }
 
-    void enable_irq(void) {
+    void enable_spirit_irq(void) {
     	MBED_ASSERT(_nr_of_irq_disables > 0);
     	if(--_nr_of_irq_disables == 0)
     		_irq.enable_irq();
@@ -138,6 +147,10 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     	SpiritPktBasicSetPayloadLength(nPayloadLength);
     }
 
+    uint16_t pkt_basic_get_received_pkt_length(void) {
+    	return SpiritPktBasicGetReceivedPktLength();
+    }
+
 	/** IRQ Instance Methods **/
     void irq_de_init(SpiritIrqs* pxIrqInit) {
     	SpiritIrqDeInit(pxIrqInit);
@@ -151,9 +164,17 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     	SpiritIrq(xIrq, xNewState);
     }
 
+    void irq_get_status(SpiritIrqs* pxIrqStatus) {
+    	SpiritIrqGetStatus(pxIrqStatus);
+    }
+
     /** Management Instance Methods **/
     void mgmt_set_freq_base(uint32_t freq) {
     	SpiritManagementSetFrequencyBase(freq);
+    }
+
+    void mgmt_refresh_status(void) {
+    	SpiritRefreshStatus();
     }
 
     /** Spirit GPIO Instance Methods **/
@@ -174,6 +195,18 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     	SpiritQiSetRssiThresholddBm(nDbmValue);
     }
 
+    float qi_get_rssi_dbm() {
+    	return (-120.0+((float)(SpiritQiGetRssi()-20))/2);
+    }
+
+    uint8_t qi_get_rssi() {
+    	return SpiritQiGetRssi();
+    }
+
+    uint8_t qi_get_lqi() {
+    	return SpiritQiGetLqi();
+    }
+
     /** Timer Instance Methods **/
     void timer_set_rx_timeout_stop_condition(RxTimeoutStopCondition xStopCondition) {
     	SpiritTimerSetRxTimeoutStopCondition(xStopCondition);
@@ -188,13 +221,26 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     }
 
     /** Command Instance Methods**/
-    void cmd_strobe_command(uint8_t cmd) {
+    void cmd_strobe(uint8_t cmd) {
     	SpiritCmdStrobeCommand((SpiritCmd)cmd);
+    }
+
+    void cmd_strobe_flush_rx_fifo() {
+    	SpiritCmdStrobeCommand(CMD_FLUSHRXFIFO);
     }
 
     /** SPI Instance Methods **/
     StatusBytes spi_write_linear_fifo(uint8_t cNbBytes, uint8_t* pcBuffer) {
     	return SdkEvalSpiWriteFifo(cNbBytes, pcBuffer);
+    }
+
+    StatusBytes spi_read_linear_fifo(uint8_t cNbBytes, uint8_t* pcBuffer) {
+    	return SdkEvalSpiReadFifo(cNbBytes, pcBuffer);
+    }
+
+    /** Linear FIFO Instance Methods **/
+    uint8_t linear_fifo_read_num_elements_rx_fifo(void) {
+    	return SpiritLinearFifoReadNumElementsRxFifo();
     }
 
     /** Internal Spirit Methods */
@@ -217,14 +263,14 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
 
     /** Helper Instance Methods **/
     void chip_sync_select() {
-    	disable_irq();
+    	disable_spirit_irq();
     	chip_select();
     	cs_to_sclk_delay();
     }
 
     void chip_sync_unselect() {
     	chip_unselect();
-    	enable_irq();
+    	enable_spirit_irq();
     }
 
     /** Init Instance Method **/
@@ -267,19 +313,51 @@ public:
      *  @param func A void() callback, or 0 to set as none
      *
      *  @note  Function 'func' will be executed in interrupt context!
+     *  @note  Enables irq when spirit is on.
      */
     void attach_irq(Callback<void()> func) {
     	_irq.fall(func);
-    	_current_irq_callback = &func;
+    	_current_irq_callback = func;
+
+        if((spirit_on == ON) && (_current_irq_callback)) {
+        	MBED_ASSERT(_nr_of_irq_disables == 1);
+        	enable_spirit_irq();
+        }
     }
 
-    /** Prepare the radio with a packet to be sent. */
+    /** Switch Radio On/Off **/
+    int on(void);
+    int off(void);
+
+    /** Prepare the radio with a packet to be sent. **/
     int prepare(const void *payload, unsigned short payload_len);
 
-    /** Send the packet that has previously been prepared. */
+    /** Send the packet that has previously been prepared. **/
     int transmit(unsigned short payload_len);
 
-    /** Switch Radio On/Off **/
-    int radio_on(void);
-    int radio_off(void);
+    /** Prepare & Transmit */
+    int send(const void *payload, unsigned short payload_len) {
+      if(prepare(payload, payload_len) == RADIO_TX_ERR) {
+        return RADIO_TX_ERR;
+      }
+      return transmit(payload_len);
+    }
+
+    /** Read into Buffer **/
+    int read(void *buf, unsigned short bufsize);
+
+    /** Perform a Clear-Channel Assessment (CCA) to find out if there is
+        a packet in the air or not.
+        Returns 0 if packet has been seen.
+      */
+    int channel_clear(void);
+
+    /** Check if the radio driver is currently receiving a packet */
+    int incoming_packet(void);
+
+    /** Check if the radio driver has just received a packet **/
+    int pending_packet(void);
+
+    /** Contiki Irq Callback */
+    void ContikiIrqHandler();
 };

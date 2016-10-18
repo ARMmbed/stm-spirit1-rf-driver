@@ -237,7 +237,6 @@ StatusBytes SimpleSpirit1::SdkEvalSpiCommandStrobes(uint8_t cCommandCode)
   chip_sync_unselect();
 
   return *pStatus;
-
 }
 
 
