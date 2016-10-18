@@ -153,7 +153,7 @@ void spirit1_interrupt_callback(void);
 #define DATARATE                    250000
 #define XTAL_OFFSET_PPM             0
 #define SYNC_WORD                   0x88888888
-#define LENGTH_WIDTH                8
+#define LENGTH_WIDTH                8 // betzw - NOTE: only 255 bytes for payload!!!
 #define CRC_MODE                    PKT_CRC_MODE_16BITS_2
 #define EN_WHITENING                S_DISABLE
 #define INFINITE_TIMEOUT            0.0

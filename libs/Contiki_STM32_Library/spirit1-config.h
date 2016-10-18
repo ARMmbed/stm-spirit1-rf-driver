@@ -39,7 +39,7 @@
 /*---------------------------------------------------------------------------*/
 #define CCA_THRESHOLD               -98.0   /* dBm */
 #define XTAL_FREQUENCY              50000000    /* Hz */ 
-#define SPIRIT_MAX_FIFO_LEN         600
+#define SPIRIT_MAX_FIFO_LEN         (96) // betzw - WAS: 600
 /*---------------------------------------------------------------------------*/
 
 /**    
@@ -48,7 +48,7 @@
  * The SPIRIT1 supports with its packet handler a length of 65,535 bytes,
  * and in direct mode (without packet handler) there is no limit of data.
  */  
-#define MAX_PACKET_LEN              SPIRIT_MAX_FIFO_LEN
+#define MAX_PACKET_LEN              (255) // betzw - WAS: SPIRIT_MAX_FIFO_LEN, but LEN_WIDTH is set to 7 so the variable payload length is from 0 to 255 bytes
 /*---------------------------------------------------------------------------*/
 /**    
  * Spirit1 IC version

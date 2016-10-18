@@ -517,7 +517,6 @@ uint16_t SpiritPktBasicGetPayloadLength(void)
 
   /* Returns the packet length */
   return ((((uint16_t)tempRegValue[0])<<8) + (uint16_t) tempRegValue[1]) - overSize;
-
 }
 
 /**
@@ -540,9 +539,8 @@ uint16_t SpiritPktBasicGetReceivedPktLength(void)
   /* Reads the RX_PCKT_LENx registers value */
   g_xStatus = SpiritSpiReadRegisters(RX_PCKT_LEN1_BASE, 2, tempRegValue);
 
-  /* Rebuild and return the the length field */
-  return ((((uint16_t) tempRegValue[0]) << 8) + (uint16_t) tempRegValue[1] - overSize);
-
+  /* Rebuild and return the length field */
+  return (((((uint16_t) tempRegValue[0]) << 8) + (uint16_t) tempRegValue[1]) - overSize);
 }
 
 /**

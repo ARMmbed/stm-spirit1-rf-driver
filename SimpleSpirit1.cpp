@@ -70,6 +70,9 @@ SimpleSpirit1::SimpleSpirit1(PinName mosi, PinName miso, PinName sclk,
     /* start timer */
     _busywait_timer.start();
 
+    /* install irq handler */
+    _irq.fall(Callback<void()>(this, &SimpleSpirit1::IrqHandler));
+
     /* init cube vars */
     spirit_on = OFF;
     packet_is_prepared = 0;
@@ -157,7 +160,7 @@ void SimpleSpirit1::init() {
 }
 
 /** Prepare the radio with a packet to be sent. **/
-int SimpleSpirit1::prepare(const void *payload, unsigned short payload_len) {
+int SimpleSpirit1::prepare_contiki(const void *payload, unsigned short payload_len) {
 	PRINTF("Spirit1: prep %u\n", payload_len);
 	packet_is_prepared = 0;
 
@@ -193,7 +196,7 @@ int SimpleSpirit1::prepare(const void *payload, unsigned short payload_len) {
 }
 
 /** Send the packet that has previously been prepared. **/
-int SimpleSpirit1::transmit(unsigned short payload_len) {
+int SimpleSpirit1::transmit_contiki(unsigned short payload_len) {
 	/* This function blocks until the packet has been transmitted */
 	//rtimer_clock_t rtimer_txdone, rtimer_rxack;
 
@@ -254,6 +257,54 @@ int SimpleSpirit1::transmit(unsigned short payload_len) {
 	packet_is_prepared = 0;
 
 	wait_us(1);
+
+	return RADIO_TX_OK;
+}
+
+int SimpleSpirit1::send(const void *payload, unsigned short payload_len) {
+	/* Checks if the payload length is supported */
+	if(payload_len > MAX_PACKET_LEN) {
+		return RADIO_TX_ERR;
+	}
+
+	disable_spirit_irq();
+
+	/* Reset State to Ready */
+	set_ready_state();
+
+	cmd_strobe(SPIRIT1_STROBE_FTX); // flush TX FIFO buffer
+	MBED_ASSERT(linear_fifo_read_num_elements_tx_fifo() == 0);
+
+	pkt_basic_set_payload_length(payload_len); // set desired payload len
+
+	int i = 0;
+	int remaining = payload_len;
+	bool trigger_tx = true;
+	do {
+		uint8_t fifo_available = SPIRIT_MAX_FIFO_LEN - linear_fifo_read_num_elements_tx_fifo();
+		uint8_t to_send = (remaining > fifo_available) ? fifo_available : remaining;
+		const uint8_t *buffer = (const uint8_t*)payload;
+
+		/* Fill FIFO Buffer */
+		spi_write_linear_fifo(to_send, (uint8_t*)&buffer[i]);
+
+		/* Start Transmit FIFO Buffer */
+		if(trigger_tx) {
+			MBED_ASSERT(linear_fifo_read_num_elements_tx_fifo() == to_send);
+			cmd_strobe(SPIRIT1_STROBE_TX);
+			trigger_tx = false;
+		}
+
+		i += to_send;
+		remaining -= to_send;
+	} while(remaining != 0);
+
+	PRINTF("betzw(%s, %d): #fifo=%d\n", __FILE__, __LINE__, linear_fifo_read_num_elements_tx_fifo());
+
+	BUSYWAIT_UNTIL(SPIRIT1_STATUS() != SPIRIT1_STATE_TX, 50);
+	MBED_ASSERT(linear_fifo_read_num_elements_tx_fifo() == 0);
+
+	enable_spirit_irq();
 
 	return RADIO_TX_OK;
 }
@@ -337,10 +388,8 @@ int SimpleSpirit1::on(void) {
 
     /* Enables the mcu to get IRQ from the SPIRIT1 */
     spirit_on = ON;
-    if(_current_irq_callback) {
-    	MBED_ASSERT(_nr_of_irq_disables == 1);
-    	enable_spirit_irq();
-    }
+    MBED_ASSERT(_nr_of_irq_disables == 1);
+    enable_spirit_irq();
   }
 
   return 0;
@@ -474,8 +523,8 @@ int SimpleSpirit1::pending_packet(void)
   return !IS_RXBUF_EMPTY();
 }
 
-/** Contiki Irq Callback **/
-void SimpleSpirit1::ContikiIrqHandler() {
+/** Spirit Irq Callback **/
+void SimpleSpirit1::IrqHandler() {
   st_lib_spirit_irqs x_irq_status;
 
   /* get interrupt source from radio */
@@ -509,8 +558,15 @@ void SimpleSpirit1::ContikiIrqHandler() {
 
   /* The IRQ_RX_DATA_READY notifies a new packet arrived */
   if(x_irq_status.IRQ_RX_DATA_READY) {
-    spi_read_linear_fifo(linear_fifo_read_num_elements_rx_fifo(), spirit_rx_buf);
-    spirit_rx_len = pkt_basic_get_received_pkt_length();
+	spirit_rx_len = pkt_basic_get_received_pkt_length();
+
+	for(int i = 0; i < spirit_rx_len; ) {
+		uint8_t fifo_available = linear_fifo_read_num_elements_rx_fifo();
+		if(fifo_available > 0)
+			spi_read_linear_fifo(fifo_available, &spirit_rx_buf[i]);
+		i += fifo_available;
+	}
+
     cmd_strobe(SPIRIT1_STROBE_FRX);
 
     last_rssi = qi_get_rssi(); //MGR
@@ -525,7 +581,11 @@ void SimpleSpirit1::ContikiIrqHandler() {
     }
 #endif /* NULLRDC_CONF_802154_AUTOACK */
 
-    /* betzw - TODO: call user callback */
+    /* call user callback */
+    if(_current_irq_callback) {
+    	_current_irq_callback();
+    }
+
     return;
   }
 

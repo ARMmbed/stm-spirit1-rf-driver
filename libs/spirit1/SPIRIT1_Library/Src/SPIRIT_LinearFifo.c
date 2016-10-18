@@ -140,7 +140,6 @@ uint8_t SpiritLinearFifoReadNumElementsTxFifo(void)
 
   /* Build and return value */
   return (tempRegValue & 0x7F);
-
 }
 
 

@@ -131,7 +131,6 @@ void SpiritPktCommonSetControlLength(PktControlLength xControlLength)
 
   /* Writes the new value on the PCKTCTRL4 register */
   g_xStatus = SpiritSpiWriteRegisters(PCKTCTRL4_BASE, 1, &tempRegValue);
-
 }
 
 
@@ -149,7 +148,6 @@ uint8_t SpiritPktCommonGetControlLength(void)
 
   /* Rebuild and return value */
   return (tempRegValue & PCKTCTRL4_CONTROL_LEN_MASK);
-
 }
 
 
@@ -175,7 +173,6 @@ void SpiritPktCommonSetPreambleLength(PktPreambleLength xPreambleLength)
 
   /* Writes the new value on the PCKTCTRL2 register */
   g_xStatus = SpiritSpiWriteRegisters(PCKTCTRL2_BASE, 1, &tempRegValue);
-
 }
 
 

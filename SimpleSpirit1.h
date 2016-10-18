@@ -243,6 +243,10 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     	return SpiritLinearFifoReadNumElementsRxFifo();
     }
 
+    uint8_t linear_fifo_read_num_elements_tx_fifo(void) {
+    	return SpiritLinearFifoReadNumElementsTxFifo();
+    }
+
     /** Internal Spirit Methods */
     void set_ready_state(void);
     uint16_t arch_refresh_status(void);
@@ -276,6 +280,9 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     /** Init Instance Method **/
     void init(void);
 
+    /** Spirit Irq Callback */
+    void IrqHandler();
+
     /** Constructor **/
     SimpleSpirit1(PinName mosi, PinName miso, PinName sclk,
 		  PinName irq, PinName cs, PinName sdn,
@@ -308,21 +315,14 @@ public:
     	return *_singleton;
     }
 
-    /** Attach a function to be called when a SPI interrupt occurs
+    /** Attach a function to be called when by the Spirit Irq handler when packet has arrived
      *
      *  @param func A void() callback, or 0 to set as none
      *
      *  @note  Function 'func' will be executed in interrupt context!
-     *  @note  Enables irq when spirit is on.
      */
-    void attach_irq(Callback<void()> func) {
-    	_irq.fall(func);
+    void attach_irq_callback(Callback<void()> func) {
     	_current_irq_callback = func;
-
-        if((spirit_on == ON) && (_current_irq_callback)) {
-        	MBED_ASSERT(_nr_of_irq_disables == 1);
-        	enable_spirit_irq();
-        }
     }
 
     /** Switch Radio On/Off **/
@@ -330,18 +330,20 @@ public:
     int off(void);
 
     /** Prepare the radio with a packet to be sent. **/
-    int prepare(const void *payload, unsigned short payload_len);
+    int prepare_contiki(const void *payload, unsigned short payload_len);
 
     /** Send the packet that has previously been prepared. **/
-    int transmit(unsigned short payload_len);
+    int transmit_contiki(unsigned short payload_len);
 
     /** Prepare & Transmit */
-    int send(const void *payload, unsigned short payload_len) {
-      if(prepare(payload, payload_len) == RADIO_TX_ERR) {
+    int send_contiki(const void *payload, unsigned short payload_len) {
+      if(prepare_contiki(payload, payload_len) == RADIO_TX_ERR) {
         return RADIO_TX_ERR;
       }
-      return transmit(payload_len);
+      return transmit_contiki(payload_len);
     }
+
+    int send(const void *payload, unsigned short payload_len);
 
     /** Read into Buffer **/
     int read(void *buf, unsigned short bufsize);
@@ -357,7 +359,4 @@ public:
 
     /** Check if the radio driver has just received a packet **/
     int pending_packet(void);
-
-    /** Contiki Irq Callback */
-    void ContikiIrqHandler();
 };
