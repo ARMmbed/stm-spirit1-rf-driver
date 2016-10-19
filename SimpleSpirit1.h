@@ -55,12 +55,15 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
      * The +1 because of the first byte,
      * which will contain the length of the packet.
      */
-    uint8_t spirit_rx_buf[MAX_PACKET_LEN];
     uint16_t spirit_tx_len;
     uint16_t spirit_rx_len;
-    volatile unsigned int spirit_on;
+    uint16_t _spirit_rx_pos;
+    bool _spirit_rx_err;
+    uint8_t spirit_rx_buf[MAX_PACKET_LEN];
+
+    /** Status Variables from Cube Implementation **/
     volatile uint8_t receiving_packet;
-    int packet_is_prepared;
+    volatile unsigned int spirit_on;
     int just_got_an_ack;
     uint16_t last_rssi; //MGR
     uint16_t last_lqi;  //MGR
@@ -291,6 +294,25 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     /** Destructor **/
     ~SimpleSpirit1(void); // should never be called!
 
+private:
+    /*** Original Contiki APIs & Variables ***/
+    /** Variable(s) for Original API(s) **/
+    int packet_is_prepared;
+
+    /** Prepare the radio with a packet to be sent. **/
+    int prepare_contiki(const void *payload, unsigned short payload_len);
+
+    /** Send the packet that has previously been prepared. **/
+    int transmit_contiki(unsigned short payload_len);
+
+    /** Prepare & Transmit */
+    int send_contiki(const void *payload, unsigned short payload_len) {
+      if(prepare_contiki(payload, payload_len) == RADIO_TX_ERR) {
+        return RADIO_TX_ERR;
+      }
+      return transmit_contiki(payload_len);
+    }
+
 public:
     static SimpleSpirit1& CreateInstance(PinName mosi, PinName miso, PinName sclk,
     		PinName irq, PinName cs, PinName sdn,
@@ -315,7 +337,7 @@ public:
     	return *_singleton;
     }
 
-    /** Attach a function to be called when by the Spirit Irq handler when packet has arrived
+    /** Attach a function to be called by the Spirit Irq handler when packet has arrived
      *
      *  @param func A void() callback, or 0 to set as none
      *
@@ -329,24 +351,10 @@ public:
     int on(void);
     int off(void);
 
-    /** Prepare the radio with a packet to be sent. **/
-    int prepare_contiki(const void *payload, unsigned short payload_len);
-
-    /** Send the packet that has previously been prepared. **/
-    int transmit_contiki(unsigned short payload_len);
-
-    /** Prepare & Transmit */
-    int send_contiki(const void *payload, unsigned short payload_len) {
-      if(prepare_contiki(payload, payload_len) == RADIO_TX_ERR) {
-        return RADIO_TX_ERR;
-      }
-      return transmit_contiki(payload_len);
-    }
-
-    int send(const void *payload, unsigned short payload_len);
+    int send(const void *payload, unsigned int payload_len);
 
     /** Read into Buffer **/
-    int read(void *buf, unsigned short bufsize);
+    int read(void *buf, unsigned int bufsize);
 
     /** Perform a Clear-Channel Assessment (CCA) to find out if there is
         a packet in the air or not.
