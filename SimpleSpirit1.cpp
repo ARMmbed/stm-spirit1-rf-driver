@@ -11,6 +11,7 @@
 									_spirit_rx_pos = 0; \
 								} while(0)
 
+#define NDEBUG
 #ifndef NDEBUG
 #include <stdio.h>
 #define PRINTF(...) printf(__VA_ARGS__)
@@ -33,8 +34,8 @@ static int wants_an_ack = 0; /* The packet sent expects an ack */
 
 #define BUSYWAIT_UNTIL(cond, millisecs)                                        					\
   do {                                                                 					 		\
-    uint32_t start = _busywait_timer.read_us();                         							\
-    while (!(cond) && ((((uint32_t)(_busywait_timer.read_us())) - start) < ((uint32_t)millisecs)*1000U));	\
+    uint32_t start = us_ticker_read();                         							\
+    while (!(cond) && ((us_ticker_read() - start) < ((uint32_t)millisecs)*1000U));	\
   } while(0)
 
 extern volatile SpiritStatus 	g_xStatus;
@@ -46,7 +47,6 @@ extern volatile SpiritStatus 	g_xStatus;
 /*** Class Implementation ***/
 /** Static Class Variables **/
 SimpleSpirit1 *SimpleSpirit1::_singleton = NULL;
-Timer SimpleSpirit1::_busywait_timer;
 
 /** Constructor **/
 SimpleSpirit1::SimpleSpirit1(PinName mosi, PinName miso, PinName sclk,
@@ -69,9 +69,6 @@ SimpleSpirit1::SimpleSpirit1(PinName mosi, PinName miso, PinName sclk,
     /* configure spi */
     _spi.format(8, 0); /* 8-bit, mode = 0, [order = SPI_MSB] only available in mbed3 */
     _spi.frequency(5000000); // 5MHz
-
-    /* start timer */
-    _busywait_timer.start();
 
     /* install irq handler */
     _irq.fall(Callback<void()>(this, &SimpleSpirit1::IrqHandler));
@@ -153,6 +150,7 @@ void SimpleSpirit1::init() {
     spirit_on = OFF;
     CLEAR_TXBUF();
     CLEAR_RXBUF();
+    _spirit_tx_started = false;
     _spirit_rx_err = false;
 
     /* Configure the radio to route the IRQ signal to its GPIO 3 */
@@ -228,6 +226,7 @@ int SimpleSpirit1::transmit_contiki(unsigned short payload_len) {
 	CLEAR_RXBUF();
 	disable_spirit_irq();
 	irq_clear_status();
+	receiving_packet = 0;
 	cmd_strobe(SPIRIT1_STROBE_SABORT);
 	wait_us(SABORT_WAIT_US);
 	cmd_strobe(SPIRIT1_STROBE_READY);
@@ -243,9 +242,9 @@ int SimpleSpirit1::transmit_contiki(unsigned short payload_len) {
 
 #if NULLRDC_CONF_802154_AUTOACK
 	if (wants_an_ack) {
-		rtimer_txdone = _busywait_timer.read_us();
+		rtimer_txdone = us_ticker_read();
 		BUSYWAIT_UNTIL(just_got_an_ack, 2);
-		rtimer_rxack = _busywait_timer.read_us();
+		rtimer_rxack = us_ticker_read();
 
 		if(just_got_an_ack) {
 			ACKPRINTF("debug_ack: ack received after %u us\n",
@@ -305,10 +304,12 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 		remaining -= to_send;
 	} while(remaining != 0);
 
-	BUSYWAIT_UNTIL(SPIRIT1_STATUS() != SPIRIT1_STATE_TX, 50);
-	MBED_ASSERT(linear_fifo_read_num_elements_tx_fifo() == 0);
+	_spirit_tx_started = true;
 
 	enable_spirit_irq();
+
+	BUSYWAIT_UNTIL(SPIRIT1_STATUS() != SPIRIT1_STATE_TX, 50);
+	MBED_ASSERT(linear_fifo_read_num_elements_tx_fifo() == 0);
 
 	return RADIO_TX_OK;
 }
@@ -317,15 +318,15 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 void SimpleSpirit1::set_ready_state(void) {
   PRINTF("READY IN\n");
 
-  irq_clear_status();
   disable_spirit_irq();
 
   if(SPIRIT1_STATUS() == SPIRIT1_STATE_STANDBY) {
 	  cmd_strobe(SPIRIT1_STROBE_READY);
   } else if(SPIRIT1_STATUS() == SPIRIT1_STATE_RX) {
+	  receiving_packet = 0;
 	  cmd_strobe(SPIRIT1_STROBE_SABORT);
-	  irq_clear_status();
   }
+  irq_clear_status();
 
   enable_spirit_irq();
 
@@ -339,6 +340,7 @@ int SimpleSpirit1::off(void) {
     disable_spirit_irq();
 
     /* first stop rx/tx */
+	receiving_packet = 0;
     cmd_strobe(SPIRIT1_STROBE_SABORT);
 
     /* Clear any pending irqs */
@@ -360,6 +362,7 @@ int SimpleSpirit1::off(void) {
 
     spirit_on = OFF;
     _nr_of_irq_disables = 1;
+    _spirit_tx_started = false;
     CLEAR_TXBUF();
     CLEAR_RXBUF();
   }
@@ -391,6 +394,7 @@ int SimpleSpirit1::on(void) {
       //return 1;
     }
     CLEAR_RXBUF();
+	receiving_packet = 0;
     _spirit_rx_err = false;
 
     /* Enables the mcu to get IRQ from the SPIRIT1 */
@@ -433,6 +437,7 @@ int SimpleSpirit1::read(void *buf, unsigned int bufsize)
   /* Checks if the RX buffer is empty */
   if(IS_RXBUF_EMPTY()) {
     CLEAR_RXBUF();
+	receiving_packet = 0;
     cmd_strobe(SPIRIT1_STROBE_SABORT);
     wait_us(SABORT_WAIT_US);
     cmd_strobe(SPIRIT1_STROBE_READY);
@@ -487,25 +492,25 @@ int SimpleSpirit1::channel_clear(void)
     spirit_state = OFF;
   }
 
-  /*  */
   disable_spirit_irq();
-  cmd_strobe(SPIRIT1_STROBE_SABORT);
-  /*  SpiritCmdStrobeSabort();*/
-  irq_clear_status();
+
+  /* Reset State to Ready */
+  set_ready_state();
   {
-    uint32_t timeout = _busywait_timer.read_us() + 5000;
+    uint32_t timeout = us_ticker_read() + 5000;
     do {
     	mgmt_refresh_status();
-    } while((st_lib_g_x_status.MC_STATE != MC_STATE_READY) && (((uint32_t)_busywait_timer.read_us()) < timeout));
+    } while((st_lib_g_x_status.MC_STATE != MC_STATE_READY) && (us_ticker_read() < timeout));
     if(st_lib_g_x_status.MC_STATE != MC_STATE_READY) {
       enable_spirit_irq();
       return 1;
     }
   }
-  enable_spirit_irq();
 
   /* Stores the RSSI value */
   rssi_value = qi_get_rssi_dbm();
+
+  enable_spirit_irq();
 
   /* Puts the SPIRIT1 in its previous state */
   if(spirit_state==OFF) {
@@ -531,12 +536,7 @@ int SimpleSpirit1::channel_clear(void)
   }
 }
 
-int SimpleSpirit1::incoming_packet(void)
-{
-  return receiving_packet;
-}
-
-int SimpleSpirit1::pending_packet(void)
+int SimpleSpirit1::get_pending_packet(void)
 {
   PRINTF("PENDING PACKET\n");
   return !IS_RXBUF_EMPTY();
@@ -556,6 +556,14 @@ void SimpleSpirit1::IrqHandler() {
     _spirit_rx_err = true;
     CLEAR_RXBUF();
     cmd_strobe(SPIRIT1_STROBE_FRX);
+    if(_spirit_tx_started) {
+    	_spirit_tx_started = false;
+    	CLEAR_TXBUF();
+		/* call user callback */
+		if(_current_irq_callback) {
+			_current_irq_callback(-1); // betzw - TODO: define enums for callback values
+		}
+    }
   }
 
   /* Transmission error */
@@ -563,6 +571,14 @@ void SimpleSpirit1::IrqHandler() {
 	error("IRQ_TX_FIFO_ERROR should never happen!\n");
     receiving_packet = 0;
     cmd_strobe(SPIRIT1_STROBE_FTX);
+    if(_spirit_tx_started) {
+    	_spirit_tx_started = false;
+    	CLEAR_TXBUF();
+		/* call user callback */
+		if(_current_irq_callback) {
+			_current_irq_callback(-1); // betzw - TODO: define enums for callback values
+		}
+    }
   }
 
   /* The IRQ_VALID_SYNC is used to notify a new packet is coming */
@@ -570,6 +586,14 @@ void SimpleSpirit1::IrqHandler() {
     receiving_packet = 1;
     _spirit_rx_err = false;
     CLEAR_RXBUF();
+    if(_spirit_tx_started) { // betzw - TOCHECK: is this really correct to be done here?
+    	_spirit_tx_started = false;
+    	CLEAR_TXBUF();
+		/* call user callback */
+		if(_current_irq_callback) {
+			_current_irq_callback(-1); // betzw - TODO: define enums for callback values
+		}
+    }
   }
 
   /* RX FIFO almost full */
@@ -593,12 +617,20 @@ void SimpleSpirit1::IrqHandler() {
 
   /* The IRQ_TX_DATA_SENT notifies the packet received. Puts the SPIRIT1 in RX */
   if(x_irq_status.IRQ_TX_DATA_SENT) {
+	MBED_ASSERT(_spirit_tx_started);
+
 	cmd_strobe(SPIRIT1_STROBE_FRX);
     cmd_strobe(SPIRIT1_STROBE_RX);
     /*    SpiritCmdStrobeRx();*/
     CLEAR_TXBUF();
     CLEAR_RXBUF();
     _spirit_rx_err = false;
+    _spirit_tx_started = false;
+
+	/* call user callback */
+	if(_current_irq_callback) {
+		_current_irq_callback(0); // betzw - TODO: define enums for callback values
+	}
   }
 
   /* The IRQ_RX_DATA_READY notifies a new packet arrived */
@@ -642,7 +674,7 @@ void SimpleSpirit1::IrqHandler() {
 
 		/* call user callback */
 		if(_current_irq_callback) {
-			_current_irq_callback();
+			_current_irq_callback(1); // betzw - TODO: define enums for callback values
 		}
 	}
   }

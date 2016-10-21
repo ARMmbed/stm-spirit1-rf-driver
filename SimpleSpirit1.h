@@ -25,29 +25,38 @@
 extern "C" void SpiritManagementSetFrequencyBase(uint32_t);
 
 
+/*** UnlockedSPI for Performance (due to singleton) ***/
+class UnlockedSPI : public SPI {
+public:
+    UnlockedSPI(PinName mosi, PinName miso, PinName sclk) :
+        SPI(mosi, miso, sclk) { }
+    virtual void lock() { }
+    virtual void unlock() { }
+};
+
+
 /*** A Simple Spirit1 Class ***/
 class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code)!!!
  protected:
 	static SimpleSpirit1 *_singleton;
 
     /** Communication Interface Instance Variables **/
-	SPI _spi; // betzw - NOTE: Arduino pins are valid only for NUCLEO-F401RE
-              // mosi: PA_7 (D11)
-              // miso: PA_6 (D12)
-              // sclk: PB_3 (D3) or
-              //       PA_5 (D13) (only in case you unmount R4 & mount R7,
-              //                  (note: in this case you may not use LED1 on some platforms)
-              // bits: 8-bit
-              // mode: 0
-              // ordr: MSB
-              // freq: max 10MHz
+	UnlockedSPI _spi; // betzw - NOTE: Arduino pins are valid only for NUCLEO-F401RE
+              	  	  // mosi: PA_7 (D11)
+					  // miso: PA_6 (D12)
+              	  	  // sclk: PB_3 (D3) or
+              	  	  //       PA_5 (D13) (only in case you unmount R4 & mount R7,
+              	  	  //                  (note: in this case you may not use LED1 on some platforms)
+              	  	  // bits: 8-bit
+              	  	  // mode: 0
+              	  	  // ordr: MSB
+              	  	  // freq: max 10MHz
     InterruptIn _irq; // PC_7 (D9) (falling)
     DigitalOut _chip_select; // PB_6 (D10) ('1' == chip unselected)
     DigitalOut _shut_down; // PA_10 (D2) ('1' == shut_down)
     DigitalOut _led; // PB_4 (D5) (optional)
 
-    static Timer _busywait_timer;
-    Callback<void()> _current_irq_callback;
+    Callback<void(int)> _current_irq_callback;
 
     /** Static Variables from Cube Implementation **/
     /*
@@ -56,6 +65,7 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
      * which will contain the length of the packet.
      */
     uint16_t spirit_tx_len;
+    bool _spirit_tx_started;
     uint16_t spirit_rx_len;
     uint16_t _spirit_rx_pos;
     bool _spirit_rx_err;
@@ -199,7 +209,8 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     }
 
     float qi_get_rssi_dbm() {
-    	return (-120.0+((float)(SpiritQiGetRssi()-20))/2);
+    	last_rssi = SpiritQiGetRssi();
+    	return (-120.0+((float)(last_rssi-20))/2);
     }
 
     uint8_t qi_get_rssi() {
@@ -343,7 +354,7 @@ public:
      *
      *  @note  Function 'func' will be executed in interrupt context!
      */
-    void attach_irq_callback(Callback<void()> func) {
+    void attach_irq_callback(Callback<void(int)> func) {
     	_current_irq_callback = func;
     }
 
@@ -351,6 +362,7 @@ public:
     int on(void);
     int off(void);
 
+    /** Send a Buffer **/
     int send(const void *payload, unsigned int payload_len);
 
     /** Read into Buffer **/
@@ -363,8 +375,20 @@ public:
     int channel_clear(void);
 
     /** Check if the radio driver is currently receiving a packet */
-    int incoming_packet(void);
+    int get_receiving_packet(void) {
+    	return receiving_packet;
+    }
 
     /** Check if the radio driver has just received a packet **/
-    int pending_packet(void);
+    int get_pending_packet(void);
+
+    /** Get latest value of RSSI **/
+    uint16_t get_last_rssi(void) {
+    	return last_rssi;
+    }
+
+    /** Get latest value of LQI **/
+    uint16_t get_last_lqi(void) {
+    	return last_lqi;
+    }
 };
