@@ -75,9 +75,11 @@ SimpleSpirit1::SimpleSpirit1(PinName mosi, PinName miso, PinName sclk,
 
     /* init cube vars */
     spirit_on = OFF;
+#ifdef CONTIKI // betzw - TODO
     packet_is_prepared = 0;
-    receiving_packet = 0;
     just_got_an_ack = 0;
+#endif // CONTIKI
+    receiving_packet = 0;
     last_rssi = 0 ; //MGR
     last_lqi = 0 ;  //MGR
 }
@@ -162,6 +164,7 @@ void SimpleSpirit1::init() {
     spirit_gpio_init(&x_gpio_init);
 }
 
+#ifdef CONTIKI // betzw - TODO
 /** Prepare the radio with a packet to be sent. **/
 int SimpleSpirit1::prepare_contiki(const void *payload, unsigned short payload_len) {
 	PRINTF("Spirit1: prep %u\n", payload_len);
@@ -265,6 +268,7 @@ int SimpleSpirit1::transmit_contiki(unsigned short payload_len) {
 
 	return RADIO_TX_OK;
 }
+#endif // CONTIKI
 
 int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 	/* Checks if the payload length is supported */

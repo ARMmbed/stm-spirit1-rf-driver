@@ -74,9 +74,8 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     /** Status Variables from Cube Implementation **/
     volatile uint8_t receiving_packet;
     volatile unsigned int spirit_on;
-    int just_got_an_ack;
-    uint16_t last_rssi; //MGR
-    uint16_t last_lqi;  //MGR
+    uint8_t last_rssi; //MGR
+    uint8_t last_lqi;  //MGR
 
     /** Low Level Instance Variables **/
     unsigned int _nr_of_irq_disables;
@@ -209,8 +208,8 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     }
 
     float qi_get_rssi_dbm() {
-    	last_rssi = SpiritQiGetRssi();
-    	return (-120.0+((float)(last_rssi-20))/2);
+    	last_rssi = qi_get_rssi();
+    	return get_last_rssi_dbm();
     }
 
     uint8_t qi_get_rssi() {
@@ -306,7 +305,11 @@ class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code
     ~SimpleSpirit1(void); // should never be called!
 
 private:
+#ifdef CONTIKI // betzw - TODO
     /*** Original Contiki APIs & Variables ***/
+    /** Interrupt callback just detected an ack **/
+    int just_got_an_ack;
+
     /** Variable(s) for Original API(s) **/
     int packet_is_prepared;
 
@@ -323,6 +326,7 @@ private:
       }
       return transmit_contiki(payload_len);
     }
+#endif // CONTIKI
 
 public:
     static SimpleSpirit1& CreateInstance(PinName mosi, PinName miso, PinName sclk,
@@ -362,6 +366,11 @@ public:
     int on(void);
     int off(void);
 
+    /** Set Channel **/
+    void set_channel(uint8_t channel) {
+    	SpiritRadioSetChannel(channel);
+    }
+
     /** Send a Buffer **/
     int send(const void *payload, unsigned int payload_len);
 
@@ -383,12 +392,12 @@ public:
     int get_pending_packet(void);
 
     /** Get latest value of RSSI **/
-    uint16_t get_last_rssi(void) {
-    	return last_rssi;
+    float get_last_rssi_dbm(void) {
+    	return (-120.0+((float)(last_rssi-20))/2);
     }
 
     /** Get latest value of LQI **/
-    uint16_t get_last_lqi(void) {
+    uint8_t get_last_lqi(void) {
     	return last_lqi;
     }
 };
