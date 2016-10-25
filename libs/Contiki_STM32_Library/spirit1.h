@@ -158,11 +158,11 @@ void spirit1_interrupt_callback(void);
 #define EN_WHITENING                S_DISABLE
 #define INFINITE_TIMEOUT            0.0
 
-extern volatile FlagStatus xRxDoneFlag, xTxDoneFlag;
-extern volatile FlagStatus PushButtonStatusWakeup;
+// extern volatile FlagStatus xRxDoneFlag, xTxDoneFlag;
+// extern volatile FlagStatus PushButtonStatusWakeup;
 extern uint16_t wakeupCounter;
 extern uint16_t dataSendCounter ;
-extern volatile FlagStatus PushButtonStatusData, datasendFlag;
+// extern volatile FlagStatus PushButtonStatusData, datasendFlag;
 
 typedef struct
 {

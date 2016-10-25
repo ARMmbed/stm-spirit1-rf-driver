@@ -45,11 +45,11 @@ extern "C" {
   
 /* Includes ------------------------------------------------------------------*/
 #ifdef USE_STM32L1XX_NUCLEO
-#include "stm32l1xx_hal.h"
+// #include "stm32l1xx_hal.h"
 #endif
 
 #ifdef USE_STM32F4XX_NUCLEO
-#include "stm32f4xx_hal.h"
+// #include "stm32f4xx_hal.h"
 #endif
 #include "SPIRIT_Config.h"
 #include "radio_spi.h" 
@@ -161,7 +161,7 @@ extern "C" {
   
 /* Exported functions ------------------------------------------------------- */ 
 void SdkEvalSpiInit(void);
-void SpiCSGpioSetLevel(GPIO_PinState xState);
+// void SpiCSGpioSetLevel(GPIO_PinState xState);
 StatusBytes SdkEvalSpiWriteRegisters(uint8_t cRegAddress, uint8_t cNbBytes, uint8_t* pcBuffer);
 StatusBytes SdkEvalSpiReadRegisters(uint8_t cRegAddress, uint8_t cNbBytes, uint8_t* pcBuffer);
 StatusBytes SdkEvalSpiCommandStrobes(uint8_t cCommandCode);

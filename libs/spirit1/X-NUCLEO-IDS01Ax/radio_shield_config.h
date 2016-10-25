@@ -46,11 +46,11 @@
 
 /* Includes ------------------------------------------------------------------*/
 #ifdef USE_STM32L1XX_NUCLEO
-#include "stm32l1xx_hal.h"
+// #include "stm32l1xx_hal.h"
 #endif
 
 #ifdef USE_STM32F4XX_NUCLEO
-#include "stm32f4xx_hal.h"
+// #include "stm32f4xx_hal.h"
 #endif
 
 /** @addtogroup BSP

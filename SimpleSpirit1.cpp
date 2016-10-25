@@ -59,6 +59,10 @@ SimpleSpirit1::SimpleSpirit1(PinName mosi, PinName miso, PinName sclk,
     _led(led),
 	_current_irq_callback()
 {
+}
+
+/** Init Function **/
+void SimpleSpirit1::init() {
     /* reset irq disable counter and irq callback & disable irq */
 	_nr_of_irq_disables = 0;
     disable_spirit_irq();
@@ -82,10 +86,7 @@ SimpleSpirit1::SimpleSpirit1(PinName mosi, PinName miso, PinName sclk,
     receiving_packet = 0;
     last_rssi = 0 ; //MGR
     last_lqi = 0 ;  //MGR
-}
 
-/** Init Function **/
-void SimpleSpirit1::init() {
     /* set frequencies */
     radio_set_xtal_freq(XTAL_FREQUENCY);
     mgmt_set_freq_base((uint32_t)BASE_FREQUENCY);
@@ -565,7 +566,7 @@ void SimpleSpirit1::IrqHandler() {
     	CLEAR_TXBUF();
 		/* call user callback */
 		if(_current_irq_callback) {
-			_current_irq_callback(-1); // betzw - TODO: define enums for callback values
+			_current_irq_callback(TX_ERR);
 		}
     }
   }
@@ -580,7 +581,7 @@ void SimpleSpirit1::IrqHandler() {
     	CLEAR_TXBUF();
 		/* call user callback */
 		if(_current_irq_callback) {
-			_current_irq_callback(-1); // betzw - TODO: define enums for callback values
+			_current_irq_callback(TX_ERR);
 		}
     }
   }
@@ -595,7 +596,7 @@ void SimpleSpirit1::IrqHandler() {
     	CLEAR_TXBUF();
 		/* call user callback */
 		if(_current_irq_callback) {
-			_current_irq_callback(-1); // betzw - TODO: define enums for callback values
+			_current_irq_callback(TX_ERR);
 		}
     }
   }
@@ -633,7 +634,7 @@ void SimpleSpirit1::IrqHandler() {
 
 	/* call user callback */
 	if(_current_irq_callback) {
-		_current_irq_callback(0); // betzw - TODO: define enums for callback values
+		_current_irq_callback(TX_DONE); // betzw - TODO: define enums for callback values
 	}
   }
 
@@ -678,7 +679,7 @@ void SimpleSpirit1::IrqHandler() {
 
 		/* call user callback */
 		if(_current_irq_callback) {
-			_current_irq_callback(1); // betzw - TODO: define enums for callback values
+			_current_irq_callback(RX_DONE); // betzw - TODO: define enums for callback values
 		}
 	}
   }

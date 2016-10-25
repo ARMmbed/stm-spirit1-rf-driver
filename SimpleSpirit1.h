@@ -36,7 +36,9 @@ public:
 
 
 /*** A Simple Spirit1 Class ***/
-class SimpleSpirit1 { // NOTE: must be a singleton (due to mix of MBED/CUBE code)!!!
+// NOTE: must be a singleton (due to mix of MBED/CUBE code)!!!
+// NOTE: implementation is IRQ-save but (intentionally) NOT thread-safe!!!
+class SimpleSpirit1 {
  protected:
 	static SimpleSpirit1 *_singleton;
 
@@ -329,6 +331,12 @@ private:
 #endif // CONTIKI
 
 public:
+    enum {
+    	RX_DONE,
+    	TX_DONE,
+		TX_ERR
+    };
+
     static SimpleSpirit1& CreateInstance(PinName mosi, PinName miso, PinName sclk,
     		PinName irq, PinName cs, PinName sdn,
 			PinName led = NC) {
@@ -399,5 +407,10 @@ public:
     /** Get latest value of LQI **/
     uint8_t get_last_lqi(void) {
     	return last_lqi;
+    }
+
+    /** Reset Board **/
+    void reset_board(void) {
+    	init();
     }
 };
