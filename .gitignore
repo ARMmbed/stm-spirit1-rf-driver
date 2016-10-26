@@ -3,3 +3,4 @@ BUILD
 projectfiles
 *.py*
 RCS
+atmel-rf-driver

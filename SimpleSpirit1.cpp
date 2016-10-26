@@ -314,7 +314,7 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 	enable_spirit_irq();
 
 	BUSYWAIT_UNTIL(SPIRIT1_STATUS() != SPIRIT1_STATE_TX, 50);
-	MBED_ASSERT(linear_fifo_read_num_elements_tx_fifo() == 0);
+	// MBED_ASSERT(linear_fifo_read_num_elements_tx_fifo() == 0);
 
 	return RADIO_TX_OK;
 }

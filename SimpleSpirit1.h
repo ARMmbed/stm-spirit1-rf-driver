@@ -401,11 +401,17 @@ public:
 
     /** Get latest value of RSSI **/
     float get_last_rssi_dbm(void) {
+    	if(last_rssi == 0) {
+    		last_rssi = qi_get_rssi();
+    	}
     	return (-120.0+((float)(last_rssi-20))/2);
     }
 
     /** Get latest value of LQI **/
     uint8_t get_last_lqi(void) {
+    	if(last_lqi == 0) {
+    		last_lqi = qi_get_lqi();
+    	}
     	return last_lqi;
     }
 
