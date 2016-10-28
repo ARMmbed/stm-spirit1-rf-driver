@@ -83,7 +83,6 @@ void SimpleSpirit1::init() {
     packet_is_prepared = 0;
     just_got_an_ack = 0;
 #endif // CONTIKI
-    receiving_packet = 0;
     last_rssi = 0 ; //MGR
     last_lqi = 0 ;  //MGR
 
@@ -133,11 +132,11 @@ void SimpleSpirit1::init() {
     irq_clear_status();
     irq_set_status(TX_DATA_SENT, S_ENABLE);
     irq_set_status(RX_DATA_READY,S_ENABLE);
-    irq_set_status(VALID_SYNC,S_ENABLE);
     irq_set_status(RX_DATA_DISC, S_ENABLE);
     irq_set_status(TX_FIFO_ERROR, S_ENABLE);
     irq_set_status(RX_FIFO_ERROR, S_ENABLE);
     irq_set_status(RX_FIFO_ALMOST_FULL, S_ENABLE);
+    irq_set_status(VALID_SYNC, S_ENABLE);
 
     /* Configure Spirit1 */
     radio_persisten_rx(S_ENABLE);
@@ -155,6 +154,7 @@ void SimpleSpirit1::init() {
     CLEAR_RXBUF();
     _spirit_tx_started = false;
     _spirit_rx_err = false;
+    _is_receiving = false;
 
     /* Configure the radio to route the IRQ signal to its GPIO 3 */
     SGpioInit x_gpio_init = {
@@ -325,10 +325,11 @@ void SimpleSpirit1::set_ready_state(void) {
 
   disable_spirit_irq();
 
+  _is_receiving = false;
+
   if(SPIRIT1_STATUS() == SPIRIT1_STATE_STANDBY) {
 	  cmd_strobe(SPIRIT1_STROBE_READY);
   } else if(SPIRIT1_STATUS() == SPIRIT1_STATE_RX) {
-	  receiving_packet = 0;
 	  cmd_strobe(SPIRIT1_STROBE_SABORT);
   }
   irq_clear_status();
@@ -345,7 +346,6 @@ int SimpleSpirit1::off(void) {
     disable_spirit_irq();
 
     /* first stop rx/tx */
-	receiving_packet = 0;
     cmd_strobe(SPIRIT1_STROBE_SABORT);
 
     /* Clear any pending irqs */
@@ -368,6 +368,8 @@ int SimpleSpirit1::off(void) {
     spirit_on = OFF;
     _nr_of_irq_disables = 1;
     _spirit_tx_started = false;
+    _is_receiving = false;
+
     CLEAR_TXBUF();
     CLEAR_RXBUF();
   }
@@ -399,8 +401,8 @@ int SimpleSpirit1::on(void) {
       //return 1;
     }
     CLEAR_RXBUF();
-	receiving_packet = 0;
     _spirit_rx_err = false;
+    _is_receiving = false;
 
     /* Enables the mcu to get IRQ from the SPIRIT1 */
     spirit_on = ON;
@@ -442,7 +444,6 @@ int SimpleSpirit1::read(void *buf, unsigned int bufsize)
   /* Checks if the RX buffer is empty */
   if(IS_RXBUF_EMPTY()) {
     CLEAR_RXBUF();
-	receiving_packet = 0;
     cmd_strobe(SPIRIT1_STROBE_SABORT);
     wait_us(SABORT_WAIT_US);
     cmd_strobe(SPIRIT1_STROBE_READY);
@@ -451,6 +452,7 @@ int SimpleSpirit1::read(void *buf, unsigned int bufsize)
     cmd_strobe(SPIRIT1_STROBE_RX);
     BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, 1);
     _spirit_rx_err = false;
+    _is_receiving = false;
     PRINTF("READ OUT RX BUF EMPTY\n");
     enable_spirit_irq();
     return 0;
@@ -472,6 +474,7 @@ int SimpleSpirit1::read(void *buf, unsigned int bufsize)
 #endif
 
     bufsize = spirit_rx_len;
+    _is_receiving = false;
     CLEAR_RXBUF();
 
     enable_spirit_irq();
@@ -528,6 +531,7 @@ int SimpleSpirit1::channel_clear(void)
     BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, 5);
     CLEAR_RXBUF();
     _spirit_rx_err = false;
+    _is_receiving = false;
     enable_spirit_irq();
   }
 
@@ -557,8 +561,8 @@ void SimpleSpirit1::IrqHandler() {
 
   /* Reception errors */
   if((x_irq_status.IRQ_RX_FIFO_ERROR) || (x_irq_status.IRQ_RX_DATA_DISC) || (x_irq_status.IRQ_RX_TIMEOUT)) {
-    receiving_packet = 0;
     _spirit_rx_err = true;
+    _is_receiving = false;
     CLEAR_RXBUF();
     cmd_strobe(SPIRIT1_STROBE_FRX);
     if(_spirit_tx_started) {
@@ -574,7 +578,7 @@ void SimpleSpirit1::IrqHandler() {
   /* Transmission error */
   if(x_irq_status.IRQ_TX_FIFO_ERROR) {
 	error("IRQ_TX_FIFO_ERROR should never happen!\n");
-    receiving_packet = 0;
+
     cmd_strobe(SPIRIT1_STROBE_FTX);
     if(_spirit_tx_started) {
     	_spirit_tx_started = false;
@@ -588,28 +592,21 @@ void SimpleSpirit1::IrqHandler() {
 
   /* The IRQ_VALID_SYNC is used to notify a new packet is coming */
   if(x_irq_status.IRQ_VALID_SYNC) {
-    receiving_packet = 1;
-    _spirit_rx_err = false;
-    CLEAR_RXBUF();
-    if(_spirit_tx_started) { // betzw - TOCHECK: is this really correct to be done here?
-    	_spirit_tx_started = false;
-    	CLEAR_TXBUF();
-		/* call user callback */
-		if(_current_irq_callback) {
-			_current_irq_callback(TX_ERR);
-		}
-    }
+	  _is_receiving = true;
+	  _spirit_rx_err = false;
+	  CLEAR_RXBUF();
+	  MBED_ASSERT(!_spirit_tx_started);
   }
 
   /* RX FIFO almost full */
   if(x_irq_status.IRQ_RX_FIFO_ALMOST_FULL) {
+	  _is_receiving = true;
 	  if(_spirit_rx_err) {
 		  cmd_strobe(SPIRIT1_STROBE_FRX);
 	  } else {
 		  uint8_t fifo_available = linear_fifo_read_num_elements_rx_fifo();
 		  unsigned int remaining = MAX_PACKET_LEN - _spirit_rx_pos;
 		  if(fifo_available > remaining) {
-			    receiving_packet = 0;
 			    _spirit_rx_err = true;
 			    CLEAR_RXBUF();
 			    cmd_strobe(SPIRIT1_STROBE_FRX);
@@ -640,8 +637,9 @@ void SimpleSpirit1::IrqHandler() {
 
   /* The IRQ_RX_DATA_READY notifies a new packet arrived */
   if(x_irq_status.IRQ_RX_DATA_READY) {
+	_is_receiving = false; // Finished receiving
+
 	if(_spirit_rx_err) {
-		receiving_packet = 0;
 		_spirit_rx_err = false;
 	    CLEAR_RXBUF();
 		cmd_strobe(SPIRIT1_STROBE_FRX);
@@ -667,8 +665,6 @@ void SimpleSpirit1::IrqHandler() {
 
 		last_rssi = qi_get_rssi(); //MGR
 		last_lqi  = qi_get_lqi();  //MGR
-
-		receiving_packet = 0;
 
 #if NULLRDC_CONF_802154_AUTOACK
 		if (spirit_rxbuf[0] == ACK_LEN) {

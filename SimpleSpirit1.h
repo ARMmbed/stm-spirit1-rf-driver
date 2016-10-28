@@ -66,16 +66,16 @@ class SimpleSpirit1 {
      * The +1 because of the first byte,
      * which will contain the length of the packet.
      */
-    uint16_t spirit_tx_len;
-    bool _spirit_tx_started;
-    uint16_t spirit_rx_len;
-    uint16_t _spirit_rx_pos;
-    bool _spirit_rx_err;
+    volatile uint16_t spirit_tx_len;
+    volatile bool _spirit_tx_started;
+    volatile uint16_t spirit_rx_len;
+    volatile uint16_t _spirit_rx_pos;
+    volatile bool _spirit_rx_err;
     uint8_t spirit_rx_buf[MAX_PACKET_LEN];
+    volatile bool _is_receiving;
 
     /** Status Variables from Cube Implementation **/
-    volatile uint8_t receiving_packet;
-    volatile unsigned int spirit_on;
+    unsigned int spirit_on;
     uint8_t last_rssi; //MGR
     uint8_t last_lqi;  //MGR
 
@@ -391,13 +391,13 @@ public:
       */
     int channel_clear(void);
 
-    /** Check if the radio driver is currently receiving a packet */
-    int get_receiving_packet(void) {
-    	return receiving_packet;
-    }
-
     /** Check if the radio driver has just received a packet **/
     int get_pending_packet(void);
+
+    /** Is radio currently receiving **/
+    bool is_receiving(void) {
+    	return _is_receiving;
+    }
 
     /** Get latest value of RSSI **/
     float get_last_rssi_dbm(void) {
