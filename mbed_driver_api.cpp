@@ -44,13 +44,14 @@ static SimpleSpirit1 *rf_device = NULL;
 static uint8_t rf_rx_buf[MAX_PACKET_LEN];
 
 static uint8_t stored_mac_address[8];
-static uint8_t stored_short_adr[2];
-static uint8_t stored_pan_id[2];
+static uint16_t stored_short_adr;
+static uint16_t stored_pan_id;
 
 #define RF_SIG_ACK_NEEDED (1<<0)
 static Thread rf_ack_sender(osPriorityRealtime);
 static uint8_t rf_rx_sequence;
-static uint8_t rf_src_pan_id[2];
+static uint8_t rf_src_adr[8];
+static uint8_t rf_src_adr_len = 0;
 static bool rf_ack_sent = false;
 
 /* MAC frame helper macros */
@@ -87,20 +88,31 @@ static void rf_if_unlock(void)
     platform_exit_critical();
 }
 
+static inline uint16_t rf_read_16_bit(uint8_t *data_ptr) { // little-endian
+	uint16_t ret;
+
+	ret = ((uint16_t)data_ptr[0]) + (((uint16_t)data_ptr[1]) << 8);
+	return ret;
+}
+
 static int8_t rf_start_cca(uint8_t *data_ptr, uint16_t data_length, uint8_t tx_handle, data_protocol_e data_protocol)
 {
 	MBED_ASSERT(data_length >= 3);
 
     /*Check if transmitter is busy*/
     if((rf_device->get_pending_packet()) || (rf_device->channel_clear() == 0)) {
+    	/* betzw - TO INVESTIGATE: should be 'is_receiving()' but screwed up */
+    	tr_debug("%s (%d)", __func__, __LINE__);
     	/*Return busy*/
         return -1;
     } else {
     	/* Get Lock */
     	rf_if_lock();
 
+    	uint16_t fcf = rf_read_16_bit(data_ptr);
+
     	/*Check if transmitted data needs to be acked*/
-    	if((data_ptr[0] & MAC_FCF_ACK_REQ_BIT_MASK) >> MAC_FCF_ACK_REQ_BIT_SHIFT)
+    	if((fcf & MAC_FCF_ACK_REQ_BIT_MASK) >> MAC_FCF_ACK_REQ_BIT_SHIFT)
     		need_ack = 1;
     	else
     		need_ack = 0;
@@ -117,7 +129,9 @@ static int8_t rf_start_cca(uint8_t *data_ptr, uint16_t data_length, uint8_t tx_h
     	/* Release Lock */
     	rf_if_unlock();
 
-    	tr_debug("%s (%d), tx_handle=%x, tx_seq=%x", __func__, __LINE__, tx_handle, tx_sequence);
+    	tr_debug("%s (%d), tx_handle=%x, tx_seq=%x, need_ack=%d (%x:%x, %x:%x, %x:%x, %x:%x)", __func__, __LINE__, tx_handle, tx_sequence, need_ack,
+    			data_ptr[3], data_ptr[4], data_ptr[5], data_ptr[6],
+				data_ptr[7], data_ptr[8], data_ptr[9], data_ptr[10]);
     }
 
 	/*Return success*/
@@ -227,18 +241,17 @@ static inline void rf_set_mac_address(uint8_t *ptr) {
 }
 
 static inline void rf_set_short_adr(uint8_t *ptr) {
-	tr_debug("%s (%d), adr0=%x, adr1=%x",
+	stored_short_adr = (ptr[0] << 8) + ptr[1]; // big-endian
+	tr_debug("%s (%d), adr0=%x, adr1=%x, val=%d",
 			__func__, __LINE__,
-			ptr[0], ptr[1]);
-	stored_short_adr[0] = ptr[0];
-	stored_short_adr[1] = ptr[1];
+			ptr[0], ptr[1], stored_short_adr);
 }
 
 static inline void rf_set_pan_id(uint8_t *ptr) {
-	tr_debug("%s (%d), adr0=%x, adr1=%x",
+	stored_pan_id = (ptr[0] << 8) + ptr[1]; // big-endian
+	tr_debug("%s (%d), adr0=%x, adr1=%x, val=%d",
 			__func__, __LINE__,
-			ptr[0], ptr[1]);
-	stored_pan_id[0] = ptr[0];
+			ptr[0], ptr[1], stored_pan_id);
 }
 
 static int8_t rf_address_write(phy_address_type_e address_type, uint8_t *address_ptr)
@@ -279,15 +292,17 @@ static void rf_handle_ack(uint8_t seq_number)
 
     	/*Call PHY TX Done API*/
         if(device_driver.phy_tx_done_cb){
-            device_driver.phy_tx_done_cb(rf_radio_driver_id, mac_tx_handle, PHY_LINK_TX_DONE, 1, 1);
+            device_driver.phy_tx_done_cb(rf_radio_driver_id, mac_tx_handle, PHY_LINK_TX_DONE, 0, 0);
         }
+    } else {
+    	tr_debug("%s (%d)", __func__, __LINE__);
     }
 }
 
 /* Note: we are in IRQ context */
 static inline bool rf_check_mac_address(uint8_t *dest) {
 	for(int i = 0; i < 8; i++) {
-		if(dest[i] != stored_mac_address[i]) return false;
+		if(dest[i] != stored_mac_address[7-i]) return false;
 	}
 	return true;
 }
@@ -295,80 +310,125 @@ static inline bool rf_check_mac_address(uint8_t *dest) {
 /* Note: we are in IRQ context */
 /* Returns true if packet should be accepted */
 static bool rf_check_destination(int len, uint8_t *ack_requested) {
-	uint8_t dst_pan_id[2];
-	uint8_t dest_addr[8];
+	uint16_t dst_pan_id;
+	uint16_t dst_short_adr;
 	uint8_t dst_addr_mode = 0x0; /*0x00 = no address 0x01 = reserved 0x02 = 16-bit short address 0x03 = 64-bit extended address */
 	uint8_t src_addr_mode = 0x0; /*0x00 = no address 0x01 = reserved 0x02 = 16-bit short address 0x03 = 64-bit extended address */
-	uint8_t min_size = 3;
+	uint8_t min_size = 3; // FCF & SeqNr
+	bool intra_pan = false;
 	bool ret = false;
 
-	if(len < min_size) return false;
+	if(len < 3) return false;
 
-	(*ack_requested) = ((rf_rx_buf[0] & MAC_FCF_ACK_REQ_BIT_MASK) >> MAC_FCF_ACK_REQ_BIT_SHIFT);
-	dst_addr_mode = ((rf_rx_buf[0] & MAC_FCF_DST_ADDR_MASK) >> MAC_FCF_DST_ADDR_SHIFT);
-	src_addr_mode = ((rf_rx_buf[0] & MAC_FCF_SRC_ADDR_MASK) >> MAC_FCF_SRC_ADDR_SHIFT);
+	uint16_t fcf = rf_read_16_bit(rf_rx_buf);
+	(*ack_requested) = ((fcf & MAC_FCF_ACK_REQ_BIT_MASK) >> MAC_FCF_ACK_REQ_BIT_SHIFT);
+	dst_addr_mode = ((fcf & MAC_FCF_DST_ADDR_MASK) >> MAC_FCF_DST_ADDR_SHIFT);
+	src_addr_mode = ((fcf & MAC_FCF_SRC_ADDR_MASK) >> MAC_FCF_SRC_ADDR_SHIFT);
+	intra_pan = ((fcf & MAC_FCF_INTRA_PANID_MASK) >> MAC_FCF_INTRA_PANID_SHIFT);
 
 	rf_rx_sequence = rf_rx_buf[2];
 
+	tr_debug("%s (%d): len=%d, ack=%d, dst=%x, src=%x, intra=%d", __func__, __LINE__, len, (*ack_requested), dst_addr_mode, src_addr_mode, intra_pan);
+
 	switch(dst_addr_mode) {
 	case 0x00:
-		ret = true; // no check & ack possible;
-		(*ack_requested) = 0;
+		ret = true; // no check possible;
 		break;
 	case 0x02:
-		min_size = 7;
-		if(len < min_size) return false;
-		min_size = 9;
-		dst_pan_id[0] = rf_rx_buf[3];
-		dst_pan_id[1] = rf_rx_buf[4];
-		if((dst_pan_id[0] == 0xFF) && (dst_pan_id[1] == 0xFF)) {
-			ret = true;
-			break;
+		min_size += 4;
+
+		if(len < 5) return false;
+
+		if(!intra_pan) { // betzw: TO CHECK: ignore pan id when in intra pan mode
+			tr_debug("%s (%d)", __func__, __LINE__);
+			dst_pan_id = rf_read_16_bit(&rf_rx_buf[3]);
+			if(dst_pan_id == 0xFFFF) {
+				tr_debug("%s (%d)", __func__, __LINE__);
+				ret = true;
+				break;
+			}
+
+			if(dst_pan_id == stored_pan_id) {
+				tr_debug("%s (%d)", __func__, __LINE__);
+				ret = true;
+				break;
+			} else {
+				tr_debug("%s (%d): %d!=%d", __func__, __LINE__, dst_pan_id, stored_pan_id);
+			}
 		}
 
-		if((dst_pan_id[0] == stored_pan_id[0]) && (dst_pan_id[1] == stored_pan_id[1])) {
-			ret = true;
-			break;
-		}
+		if(len < 7) return false;
 
-		dest_addr[0] = rf_rx_buf[5];
-		dest_addr[1] = rf_rx_buf[6];
-		if((dest_addr[0] == stored_short_adr[0]) && (dest_addr[1] == stored_short_adr[1])) {
+    	tr_debug("%s (%d)", __func__, __LINE__);
+    	dst_short_adr = rf_read_16_bit(&rf_rx_buf[5]);
+		if(dst_short_adr == stored_short_adr) {
+	    	tr_debug("%s (%d)", __func__, __LINE__);
 			ret = true;
 			break;
+		} else {
+	    	tr_debug("%s (%d): %d!=%d", __func__, __LINE__, dst_short_adr, stored_short_adr);
 		}
 		break;
 	case 0x03:
-		min_size = 7;
-		if(len < 7) return false;
-		min_size = 15;
-		dst_pan_id[0] = rf_rx_buf[3];
-		dst_pan_id[1] = rf_rx_buf[4];
-		if((dst_pan_id[0] == 0xFF) && (dst_pan_id[1] == 0xFF)) {
-			ret = true;
-			break;
+		min_size += 10;
+
+		if(len < 5) return false;
+
+		if(!intra_pan) { // betzw: TO CHECK: ignore pan id when in intra pan mode
+			tr_debug("%s (%d)", __func__, __LINE__);
+			dst_pan_id = rf_read_16_bit(&rf_rx_buf[3]);
+			if(dst_pan_id == 0xFFFF) {
+				tr_debug("%s (%d)", __func__, __LINE__);
+				ret = true;
+				break;
+			}
+
+			if(dst_pan_id == stored_pan_id) {
+				tr_debug("%s (%d)", __func__, __LINE__);
+				ret = true;
+				break;
+			}
 		}
 
+		if(len < 13) return false;
+
+    	tr_debug("%s (%d)", __func__, __LINE__);
 		ret = rf_check_mac_address(&rf_rx_buf[5]);
 		break;
 	default:
 		/* not supported */
+    	tr_debug("%s (%d)", __func__, __LINE__);
 		return false;
 	}
 
-	if(*ack_requested) {
+	if(ret && (*ack_requested)) {
 		if(src_addr_mode == 0x00) {
-			*ack_requested = 0; // cannot send acknowledgment
+			(*ack_requested) = 0; // cannot send acknowledgment
 		} else {
-			if(len < min_size) {
-				*ack_requested = 0; // cannot send acknowledgment
-			} else {
-				rf_src_pan_id[0] = rf_rx_buf[min_size-2];
-				rf_src_pan_id[1] = rf_rx_buf[min_size-1];
+			if(!intra_pan) { // Src PAN Id is present
+				min_size += 2;
+				if(len < min_size) {
+					(*ack_requested) = 0; // cannot send acknowledgment
+				} else {
+					rf_src_adr_len = 2;
+					rf_src_adr[0] = rf_rx_buf[min_size-2];
+					rf_src_adr[1] = rf_rx_buf[min_size-1];
+					tr_debug("%s (%d): %x:%x", __func__, __LINE__, rf_src_adr[0], rf_src_adr[1]);
+				}
+			} else { // Src PAN Id is NOT present
+				min_size += 8;
+				if(len < min_size) {
+					(*ack_requested) = 0; // cannot send acknowledgment
+				} else {
+					rf_src_adr_len = 8;
+					memcpy(&rf_src_adr[0], &rf_rx_buf[min_size-8], rf_src_adr_len);
+					tr_debug("%s (%d): %x:%x", __func__, __LINE__, rf_src_adr[0], rf_src_adr[1]);
+				}
 			}
 		}
 	}
 
+	tr_debug("%s (%d)", __func__, __LINE__);
 	return ret;
 }
 
@@ -392,11 +452,13 @@ static inline void rf_handle_rx_end(void)
 
     /* Check if packet should be accepted */
     if(!rf_check_destination(rf_buffer_len, &ack_requested)) {
+    	tr_debug("%s (%d)", __func__, __LINE__);
     	return;
     }
 
     /* If waiting for ACK, check here if the packet is an ACK to a message previously sent */
-    if((rf_buffer_len == 5) && (((rf_rx_buf[0] & MAC_FCF_FRAME_TYPE_MASK) >> MAC_FCF_FRAME_TYPE_SHIFT) == FC_ACK_FRAME)) {
+    uint16_t fcf = rf_read_16_bit(rf_rx_buf);
+    if(((fcf & MAC_FCF_FRAME_TYPE_MASK) >> MAC_FCF_FRAME_TYPE_SHIFT) == FC_ACK_FRAME) {
     	/*Send sequence number in ACK handler*/
     	tr_debug("%s (%d), len=%u", __func__, __LINE__, (unsigned int)rf_buffer_len);
        	rf_handle_ack(rf_rx_buf[2]);
@@ -436,7 +498,7 @@ static inline void rf_handle_tx_end(void)
 
     /*Call PHY TX Done API*/
     if(device_driver.phy_tx_done_cb){
-        device_driver.phy_tx_done_cb(rf_radio_driver_id, mac_tx_handle, phy_status, 1, 1);
+        device_driver.phy_tx_done_cb(rf_radio_driver_id, mac_tx_handle, phy_status, 0, 0);
     }
 }
 
@@ -446,7 +508,7 @@ static inline void rf_handle_tx_err(void) {
 
     /*Call PHY TX Done API*/
     if(device_driver.phy_tx_done_cb){
-        device_driver.phy_tx_done_cb(rf_radio_driver_id, mac_tx_handle, phy_status, 1, 1);
+        device_driver.phy_tx_done_cb(rf_radio_driver_id, mac_tx_handle, phy_status, 0, 0);
     }
 }
 
@@ -467,34 +529,48 @@ static void rf_callback_func(int event) {
 }
 
 static void rf_ack_loop(void) {
-	static uint16_t buffer[4];
-
-	/* Pre-prepare payload */
-	buffer[0] = FC_ACK_FRAME | (0x2 << MAC_FCF_DST_ADDR_SHIFT); // FCF
+	static uint16_t buffer[7];
+	uint8_t *dest;
+	uint8_t len;
 
 	do {
 		/* Wait for signal */
 		rf_ack_sender.signal_wait(RF_SIG_ACK_NEEDED);
 
-		/* Prepare payload */
-		uint8_t *ptr = (uint8_t*)&buffer[1];
-		ptr[0] = rf_rx_sequence;   // Sequence number
-		ptr[1] = rf_src_pan_id[0]; // pan_id_0
-		ptr[2] = rf_src_pan_id[1]; // pan_id_1
-
 		/* Get Lock */
 		rf_if_lock();
 
+		/* Prepare header */
+		uint8_t *ptr = (uint8_t*)&buffer[1];
+		if(rf_src_adr_len == 2) {
+			buffer[0] = FC_ACK_FRAME | (0x02 << MAC_FCF_DST_ADDR_SHIFT);
+			dest = &ptr[1];
+			len = 5;
+		} else {
+			buffer[0] = FC_ACK_FRAME | (0x03 << MAC_FCF_DST_ADDR_SHIFT) | (0x01 << MAC_FCF_INTRA_PANID_SHIFT);
+			dest = &ptr[3];
+			len = 13;
+		}
+
+		/* Prepare payload */
+		ptr[0] = rf_rx_sequence;   // Sequence number
+		memcpy(dest, &rf_src_adr[0], rf_src_adr_len);
+
 		/* Wait for device not receiving */
 		while(rf_device->is_receiving()) {
+			/* betzw - TO INVESTIGATE: might screw up (see above) */
+	    	tr_debug("%s (%d)", __func__, __LINE__);
 			wait_us(10);
 		}
 
-		/* Set information that we have sent an ACK */
+    	tr_debug("%s (%d), hdr=%x, nr=%x, pan0=%x, pan1=%x, adr0=%x, adr1=%x", __func__, __LINE__,
+    			buffer[0], ptr[0], ptr[1], ptr[2], ptr[3], ptr[4]);
+
+    	/* Set information that we have sent an ACK */
 		rf_ack_sent = true;
 
         /*Send the packet*/
-        rf_device->send((uint8_t*)buffer, 5);
+        rf_device->send((uint8_t*)buffer, len);
 
 		/* Release Lock */
 		rf_if_unlock();
