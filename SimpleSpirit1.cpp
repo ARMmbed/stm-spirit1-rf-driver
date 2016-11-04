@@ -90,6 +90,9 @@ void SimpleSpirit1::init() {
     /* soft core reset */
     cmd_strobe(SPIRIT1_STROBE_SRES);
 
+    printf("SpiritLinearFifoSetAlmostFullThresholdRx(6): ");
+    SpiritLinearFifoSetAlmostFullThresholdRx(6);
+
     /* Configures the SPIRIT1 radio part */
     SRadioInit x_radio_init = {
       XTAL_OFFSET_PPM,
@@ -156,6 +159,8 @@ void SimpleSpirit1::init() {
 	SPIRIT_GPIO_DIG_OUT_IRQ
     };
     spirit_gpio_init(&x_gpio_init);
+
+    printf("%d\n", SpiritLinearFifoGetAlmostFullThresholdRx());
 }
 
 #ifdef CONTIKI // betzw - TODO
@@ -599,39 +604,12 @@ void SimpleSpirit1::IrqHandler() {
 
   /* The IRQ_VALID_SYNC is used to notify a new packet is coming */
   if(x_irq_status.IRQ_VALID_SYNC) {
+	  printf("S\n");
 	  _is_receiving = true;
 	  _spirit_rx_err = false;
 	  CLEAR_RXBUF();
 	  MBED_ASSERT(!_spirit_tx_started);
 	  start_rx_timeout();
-  }
-
-  /* RX FIFO almost full */
-  if(x_irq_status.IRQ_RX_FIFO_ALMOST_FULL) {
-	  if(_spirit_rx_err) {
-		  _is_receiving = false;
-		  cmd_strobe(SPIRIT1_STROBE_FRX);
-		  CLEAR_RXBUF();
-		  stop_rx_timeout();
-	  } else {
-		  uint8_t fifo_available = linear_fifo_read_num_elements_rx_fifo();
-		  unsigned int remaining = MAX_PACKET_LEN - _spirit_rx_pos;
-		  if(fifo_available > remaining) {
-			  printf("%s (%d)\n", __func__, __LINE__);
-			  _spirit_rx_err = true;
-			  _is_receiving = false;
-			  CLEAR_RXBUF();
-			  cmd_strobe(SPIRIT1_STROBE_FRX);
-			  stop_rx_timeout();
-		  } else {
-			  spi_read_linear_fifo(fifo_available, &spirit_rx_buf[_spirit_rx_pos]);
-			  _spirit_rx_pos += fifo_available;
-			  if(!_is_receiving) {
-				  _is_receiving = true;
-				  start_rx_timeout();
-			  }
-		  }
-	  }
   }
 
   /* The IRQ_TX_DATA_SENT notifies the packet received. Puts the SPIRIT1 in RX */
@@ -650,6 +628,7 @@ void SimpleSpirit1::IrqHandler() {
 	if(_current_irq_callback) {
 		_current_irq_callback(TX_DONE); // betzw - TODO: define enums for callback values
 	}
+	printf("s\n");
   }
 
   /* The IRQ_RX_DATA_READY notifies a new packet arrived */
@@ -658,6 +637,7 @@ void SimpleSpirit1::IrqHandler() {
     stop_rx_timeout();
 
 	if(_spirit_rx_err) {
+		printf("%s (%d)\n", __func__, __LINE__);
 		_spirit_rx_err = false;
 	    CLEAR_RXBUF();
 		cmd_strobe(SPIRIT1_STROBE_FRX);
@@ -695,6 +675,40 @@ void SimpleSpirit1::IrqHandler() {
 		if(_current_irq_callback) {
 			_current_irq_callback(RX_DONE); // betzw - TODO: define enums for callback values
 		}
+
+		x_irq_status.IRQ_RX_FIFO_ALMOST_FULL = S_RESET; // skip FIFO handling
+
+		printf("D\n");
 	}
+  }
+
+  /* RX FIFO almost full */
+  if(x_irq_status.IRQ_RX_FIFO_ALMOST_FULL) {
+	  if(_spirit_rx_err) {
+		  printf("%s (%d)\n", __func__, __LINE__);
+		  _is_receiving = false;
+		  cmd_strobe(SPIRIT1_STROBE_FRX);
+		  CLEAR_RXBUF();
+		  stop_rx_timeout();
+	  } else {
+		  uint8_t fifo_available = linear_fifo_read_num_elements_rx_fifo();
+		  unsigned int remaining = MAX_PACKET_LEN - _spirit_rx_pos;
+		  if(fifo_available > remaining) {
+			  printf("%s (%d)\n", __func__, __LINE__);
+			  _spirit_rx_err = true;
+			  _is_receiving = false;
+			  CLEAR_RXBUF();
+			  cmd_strobe(SPIRIT1_STROBE_FRX);
+			  stop_rx_timeout();
+		  } else {
+			  spi_read_linear_fifo(fifo_available, &spirit_rx_buf[_spirit_rx_pos]);
+			  _spirit_rx_pos += fifo_available;
+			  if(!_is_receiving) {
+				  _is_receiving = true;
+				  start_rx_timeout();
+			  }
+			  printf("F\n");
+		  }
+	  }
   }
 }
