@@ -2,15 +2,6 @@
 #include "SimpleSpirit1.h"
 #include "radio_spi.h"
 
-
-/*** Macros from Cube Implementation ***/
-#define CLEAR_TXBUF()			(spirit_tx_len = 0)
-#define IS_RXBUF_EMPTY()        (spirit_rx_len == 0)
-#define CLEAR_RXBUF()			do { 					\
-									spirit_rx_len = 0;	\
-									_spirit_rx_pos = 0; \
-								} while(0)
-
 #define NDEBUG
 #ifndef NDEBUG
 #include <stdio.h>
@@ -57,7 +48,8 @@ SimpleSpirit1::SimpleSpirit1(PinName mosi, PinName miso, PinName sclk,
     _chip_select(cs),
     _shut_down(sdn),
     _led(led),
-	_current_irq_callback()
+	_current_irq_callback(),
+	_rx_receiving_timeout()
 {
 }
 
@@ -75,6 +67,7 @@ void SimpleSpirit1::init() {
     _spi.frequency(5000000); // 5MHz
 
     /* install irq handler */
+    _irq.mode(PullUp);
     _irq.fall(Callback<void()>(this, &SimpleSpirit1::IrqHandler));
 
     /* init cube vars */
@@ -326,6 +319,7 @@ void SimpleSpirit1::set_ready_state(void) {
   disable_spirit_irq();
 
   _is_receiving = false;
+  stop_rx_timeout();
 
   if(SPIRIT1_STATUS() == SPIRIT1_STATE_STANDBY) {
 	  cmd_strobe(SPIRIT1_STROBE_READY);
@@ -369,6 +363,7 @@ int SimpleSpirit1::off(void) {
     _nr_of_irq_disables = 1;
     _spirit_tx_started = false;
     _is_receiving = false;
+    stop_rx_timeout();
 
     CLEAR_TXBUF();
     CLEAR_RXBUF();
@@ -403,6 +398,7 @@ int SimpleSpirit1::on(void) {
     CLEAR_RXBUF();
     _spirit_rx_err = false;
     _is_receiving = false;
+    stop_rx_timeout();
 
     /* Enables the mcu to get IRQ from the SPIRIT1 */
     spirit_on = ON;
@@ -453,6 +449,7 @@ int SimpleSpirit1::read(void *buf, unsigned int bufsize)
     BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, 1);
     _spirit_rx_err = false;
     _is_receiving = false;
+    stop_rx_timeout();
     PRINTF("READ OUT RX BUF EMPTY\n");
     enable_spirit_irq();
     return 0;
@@ -475,6 +472,7 @@ int SimpleSpirit1::read(void *buf, unsigned int bufsize)
 
     bufsize = spirit_rx_len;
     _is_receiving = false;
+    stop_rx_timeout();
     CLEAR_RXBUF();
 
     enable_spirit_irq();
@@ -532,6 +530,7 @@ int SimpleSpirit1::channel_clear(void)
     CLEAR_RXBUF();
     _spirit_rx_err = false;
     _is_receiving = false;
+    stop_rx_timeout();
     enable_spirit_irq();
   }
 
@@ -554,17 +553,25 @@ int SimpleSpirit1::get_pending_packet(void)
 /** Spirit Irq Callback **/
 void SimpleSpirit1::IrqHandler() {
   st_lib_spirit_irqs x_irq_status;
+  // st_lib_spirit_irqs mask;
 
   /* get interrupt source from radio */
   irq_get_status(&x_irq_status);
-  irq_clear_status();
+  // betzw - WAS: irq_clear_status(); BUT already cleared by get status!
+
+  // SpiritIrqGetMask(&mask);
+  // uint32_t *tmp = (uint32_t*)&x_irq_status;
+  // uint32_t *tmp_mask = (uint32_t*)&mask;
+  // printf("0x%x:0x%x\n", *tmp, *tmp_mask);
 
   /* Reception errors */
   if((x_irq_status.IRQ_RX_FIFO_ERROR) || (x_irq_status.IRQ_RX_DATA_DISC) || (x_irq_status.IRQ_RX_TIMEOUT)) {
+	printf("%s (%d)\n", __func__, __LINE__);
     _spirit_rx_err = true;
     _is_receiving = false;
     CLEAR_RXBUF();
     cmd_strobe(SPIRIT1_STROBE_FRX);
+    stop_rx_timeout();
     if(_spirit_tx_started) {
     	_spirit_tx_started = false;
     	CLEAR_TXBUF();
@@ -596,23 +603,33 @@ void SimpleSpirit1::IrqHandler() {
 	  _spirit_rx_err = false;
 	  CLEAR_RXBUF();
 	  MBED_ASSERT(!_spirit_tx_started);
+	  start_rx_timeout();
   }
 
   /* RX FIFO almost full */
   if(x_irq_status.IRQ_RX_FIFO_ALMOST_FULL) {
-	  _is_receiving = true;
 	  if(_spirit_rx_err) {
+		  _is_receiving = false;
 		  cmd_strobe(SPIRIT1_STROBE_FRX);
+		  CLEAR_RXBUF();
+		  stop_rx_timeout();
 	  } else {
 		  uint8_t fifo_available = linear_fifo_read_num_elements_rx_fifo();
 		  unsigned int remaining = MAX_PACKET_LEN - _spirit_rx_pos;
 		  if(fifo_available > remaining) {
-			    _spirit_rx_err = true;
-			    CLEAR_RXBUF();
-			    cmd_strobe(SPIRIT1_STROBE_FRX);
+			  printf("%s (%d)\n", __func__, __LINE__);
+			  _spirit_rx_err = true;
+			  _is_receiving = false;
+			  CLEAR_RXBUF();
+			  cmd_strobe(SPIRIT1_STROBE_FRX);
+			  stop_rx_timeout();
 		  } else {
 			  spi_read_linear_fifo(fifo_available, &spirit_rx_buf[_spirit_rx_pos]);
 			  _spirit_rx_pos += fifo_available;
+			  if(!_is_receiving) {
+				  _is_receiving = true;
+				  start_rx_timeout();
+			  }
 		  }
 	  }
   }
@@ -638,6 +655,7 @@ void SimpleSpirit1::IrqHandler() {
   /* The IRQ_RX_DATA_READY notifies a new packet arrived */
   if(x_irq_status.IRQ_RX_DATA_READY) {
 	_is_receiving = false; // Finished receiving
+    stop_rx_timeout();
 
 	if(_spirit_rx_err) {
 		_spirit_rx_err = false;
@@ -646,15 +664,15 @@ void SimpleSpirit1::IrqHandler() {
 	} else {
 		spirit_rx_len = pkt_basic_get_received_pkt_length();
 		unsigned int remaining = 0;
-		uint8_t fifo_available = 0;
+		// uint8_t fifo_available = 0;
 		uint8_t to_receive = 0;
 
 		MBED_ASSERT(spirit_rx_len <= MAX_PACKET_LEN);
 
 		for(; _spirit_rx_pos < spirit_rx_len;) {
 			remaining = spirit_rx_len - _spirit_rx_pos;
-			fifo_available = linear_fifo_read_num_elements_rx_fifo();
-			to_receive = (remaining < fifo_available) ? remaining : fifo_available;
+			// fifo_available = linear_fifo_read_num_elements_rx_fifo();
+			to_receive = remaining; // betzw - WAS: (remaining < fifo_available) ? remaining : fifo_available;
 			if(to_receive > 0) {
 				spi_read_linear_fifo(to_receive, &spirit_rx_buf[_spirit_rx_pos]);
 				_spirit_rx_pos += to_receive;

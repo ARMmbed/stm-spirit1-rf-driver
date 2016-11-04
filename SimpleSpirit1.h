@@ -16,6 +16,15 @@
 
 
 /*** Macros from Cube Implementation ***/
+#define CLEAR_TXBUF()			(spirit_tx_len = 0)
+#define IS_RXBUF_EMPTY()        (spirit_rx_len == 0)
+#define CLEAR_RXBUF()			do { 					\
+									spirit_rx_len = 0;	\
+									_spirit_rx_pos = 0; \
+								} while(0)
+
+
+/*** Macros from Cube Implementation ***/
 /* transceiver state. */
 #define ON     0
 #define OFF    1
@@ -59,6 +68,26 @@ class SimpleSpirit1 {
     DigitalOut _led; // PB_4 (D5) (optional)
 
     Callback<void(int)> _current_irq_callback;
+    Timeout _rx_receiving_timeout;
+
+    void rx_timeout_handler(void) {
+    	set_ready_state();
+		cmd_strobe(SPIRIT1_STROBE_FRX);
+	    cmd_strobe(SPIRIT1_STROBE_RX);
+	    CLEAR_TXBUF();
+	    CLEAR_RXBUF();
+	    _spirit_rx_err = false;
+	    _spirit_tx_started = false;
+    	printf("%s (%d)\n", __func__, __LINE__);
+    }
+
+    void start_rx_timeout(void) {
+    	_rx_receiving_timeout.attach_us(Callback<void()>(this, &SimpleSpirit1::rx_timeout_handler), 500 * 1000); // 5ms
+    }
+
+    void stop_rx_timeout(void) {
+    	_rx_receiving_timeout.detach();
+    }
 
     /** Static Variables from Cube Implementation **/
     /*

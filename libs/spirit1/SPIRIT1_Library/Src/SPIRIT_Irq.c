@@ -266,7 +266,7 @@ void SpiritIrqGetStatus(SpiritIrqs* pxIrqStatus)
 {
   uint8_t tempRegValue[4];
   uint8_t* pIrqPointer = (uint8_t*)pxIrqStatus;
-  
+
   /* Reads IRQ_STATUS registers */
   g_xStatus = SpiritSpiReadRegisters(IRQ_STATUS3_BASE, 4, tempRegValue);
 
