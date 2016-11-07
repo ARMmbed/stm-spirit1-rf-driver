@@ -148,18 +148,8 @@ void SpiritIrqDeInit(SpiritIrqs* pxIrqInit)
  */
 void SpiritIrqInit(SpiritIrqs* pxIrqInit)
 {
-  uint8_t tempRegValue[4];
-  uint8_t* tmpPoint;
-
-  /* Cast the bitfields structure in an array of char using */
-  tmpPoint = (uint8_t*)(pxIrqInit);
-  for(uint8_t i=0; i<4; i++)
-  {
-    tempRegValue[3-i]= tmpPoint[i];
-  }
-
   /* Writes the IRQ_MASK registers */
-  g_xStatus = SpiritSpiWriteRegisters(IRQ_MASK3_BASE, 4, tempRegValue);
+  g_xStatus = SpiritSpiWriteRegisters(IRQ_MASK3_BASE, 4, (uint8_t*)pxIrqInit);
 
 }
 
@@ -230,19 +220,8 @@ void SpiritIrq(IrqList xIrq, SpiritFunctionalState xNewState)
  */
 void SpiritIrqGetMask(SpiritIrqs* pxIrqMask)
 {
-  uint8_t tempRegValue[4];
-  uint8_t* pIrqPointer = (uint8_t*)pxIrqMask;
-
   /* Reads IRQ_MASK registers */
-  g_xStatus = SpiritSpiReadRegisters(IRQ_MASK3_BASE, 4, tempRegValue);
-
-  /* Build the IRQ mask word */
-  for(char i=0; i<4; i++)
-  {
-    *pIrqPointer = tempRegValue[3-i];
-    pIrqPointer++;
-  }
-
+  g_xStatus = SpiritSpiReadRegisters(IRQ_MASK3_BASE, 4, (uint8_t*)pxIrqMask);
 }
 
 
@@ -264,18 +243,8 @@ void SpiritIrqGetMask(SpiritIrqs* pxIrqMask)
  */
 void SpiritIrqGetStatus(SpiritIrqs* pxIrqStatus)
 {
-  uint8_t tempRegValue[4];
-  uint8_t* pIrqPointer = (uint8_t*)pxIrqStatus;
-
   /* Reads IRQ_STATUS registers */
-  g_xStatus = SpiritSpiReadRegisters(IRQ_STATUS3_BASE, 4, tempRegValue);
-
-  /* Build the IRQ Status word */
-  for(uint8_t i=0; i<4; i++)
-  {
-    *pIrqPointer = tempRegValue[3-i];
-    pIrqPointer++;
-  }
+  g_xStatus = SpiritSpiReadRegisters(IRQ_STATUS3_BASE, 4, (uint8_t*)pxIrqStatus);
 }
 
 

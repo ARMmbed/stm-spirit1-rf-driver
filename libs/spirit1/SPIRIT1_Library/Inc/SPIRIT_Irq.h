@@ -172,41 +172,41 @@
  */
 typedef struct
 {
-  SpiritFlagStatus  IRQ_RX_DATA_READY:1;            /*!< IRQ: RX data ready */
-  SpiritFlagStatus  IRQ_RX_DATA_DISC:1;             /*!< IRQ: RX data discarded (upon filtering) */
-  SpiritFlagStatus  IRQ_TX_DATA_SENT:1;             /*!< IRQ: TX data sent */
-  SpiritFlagStatus  IRQ_MAX_RE_TX_REACH:1;          /*!< IRQ: Max re-TX reached */
-  SpiritFlagStatus  IRQ_CRC_ERROR:1;                /*!< IRQ: CRC error */
-  SpiritFlagStatus  IRQ_TX_FIFO_ERROR:1;            /*!< IRQ: TX FIFO underflow/overflow error */
-  SpiritFlagStatus  IRQ_RX_FIFO_ERROR:1;            /*!< IRQ: RX FIFO underflow/overflow error */
-  SpiritFlagStatus  IRQ_TX_FIFO_ALMOST_FULL:1;      /*!< IRQ: TX FIFO almost full */
+	  SpiritFlagStatus  IRQ_SYNTH_LOCK_TIMEOUT:1;       /*!< IRQ: only for debug; LOCK state timeout */
+	  SpiritFlagStatus  IRQ_SYNTH_LOCK_STARTUP:1;       /*!< IRQ: only for debug; see CALIBR_START_COUNTER */
+	  SpiritFlagStatus  IRQ_SYNTH_CAL_TIMEOUT:1;        /*!< IRQ: only for debug; SYNTH calibration timeout */
+	  SpiritFlagStatus  IRQ_TX_START_TIME:1;            /*!< IRQ: only for debug; TX circuitry startup time; see TX_START_COUNTER */
+	  SpiritFlagStatus  IRQ_RX_START_TIME:1;            /*!< IRQ: only for debug; RX circuitry startup time; see TX_START_COUNTER */
+	  SpiritFlagStatus  IRQ_RX_TIMEOUT:1;               /*!< IRQ: RX operation timeout */
+	  SpiritFlagStatus  IRQ_AES_END:1;                  /*!< IRQ: AES End of operation */
+	  SpiritFlagStatus  :1;                             /*!< Reserved bit */
 
-  SpiritFlagStatus  IRQ_TX_FIFO_ALMOST_EMPTY:1;     /*!< IRQ: TX FIFO almost empty */
-  SpiritFlagStatus  IRQ_RX_FIFO_ALMOST_FULL:1;      /*!< IRQ: RX FIFO almost full */
-  SpiritFlagStatus  IRQ_RX_FIFO_ALMOST_EMPTY:1;     /*!< IRQ: RX FIFO almost empty  */
-  SpiritFlagStatus  IRQ_MAX_BO_CCA_REACH:1;         /*!< IRQ: Max number of back-off during CCA */
-  SpiritFlagStatus  IRQ_VALID_PREAMBLE:1;           /*!< IRQ: Valid preamble detected */
-  SpiritFlagStatus  IRQ_VALID_SYNC:1;               /*!< IRQ: Sync word detected */
-  SpiritFlagStatus  IRQ_RSSI_ABOVE_TH:1;            /*!< IRQ: RSSI above threshold */
-  SpiritFlagStatus  IRQ_WKUP_TOUT_LDC:1;            /*!< IRQ: Wake-up timeout in LDC mode */
+	  SpiritFlagStatus  IRQ_READY:1;                    /*!< IRQ: READY state */
+	  SpiritFlagStatus  IRQ_STANDBY_DELAYED:1;          /*!< IRQ: STANDBY state after MCU_CK_CONF_CLOCK_TAIL_X clock cycles */
+	  SpiritFlagStatus  IRQ_LOW_BATT_LVL:1;             /*!< IRQ: Battery level below threshold*/
+	  SpiritFlagStatus  IRQ_POR:1;                      /*!< IRQ: Power On Reset */
+	  SpiritFlagStatus  IRQ_BOR:1;                      /*!< IRQ: Brown out event (both accurate and inaccurate)*/
+	  SpiritFlagStatus  IRQ_LOCK:1;                     /*!< IRQ: LOCK state */
+	  SpiritFlagStatus  IRQ_PM_COUNT_EXPIRED:1;         /*!< IRQ: only for debug; Power Management startup timer expiration (see reg PM_START_COUNTER, 0xB5) */
+	  SpiritFlagStatus  IRQ_XO_COUNT_EXPIRED:1;         /*!< IRQ: only for debug; Crystal oscillator settling time counter expired */
 
-  SpiritFlagStatus  IRQ_READY:1;                    /*!< IRQ: READY state */
-  SpiritFlagStatus  IRQ_STANDBY_DELAYED:1;          /*!< IRQ: STANDBY state after MCU_CK_CONF_CLOCK_TAIL_X clock cycles */
-  SpiritFlagStatus  IRQ_LOW_BATT_LVL:1;             /*!< IRQ: Battery level below threshold*/
-  SpiritFlagStatus  IRQ_POR:1;                      /*!< IRQ: Power On Reset */
-  SpiritFlagStatus  IRQ_BOR:1;                      /*!< IRQ: Brown out event (both accurate and inaccurate)*/
-  SpiritFlagStatus  IRQ_LOCK:1;                     /*!< IRQ: LOCK state */
-  SpiritFlagStatus  IRQ_PM_COUNT_EXPIRED:1;         /*!< IRQ: only for debug; Power Management startup timer expiration (see reg PM_START_COUNTER, 0xB5) */
-  SpiritFlagStatus  IRQ_XO_COUNT_EXPIRED:1;         /*!< IRQ: only for debug; Crystal oscillator settling time counter expired */
+	  SpiritFlagStatus  IRQ_TX_FIFO_ALMOST_EMPTY:1;     /*!< IRQ: TX FIFO almost empty */
+	  SpiritFlagStatus  IRQ_RX_FIFO_ALMOST_FULL:1;      /*!< IRQ: RX FIFO almost full */
+	  SpiritFlagStatus  IRQ_RX_FIFO_ALMOST_EMPTY:1;     /*!< IRQ: RX FIFO almost empty  */
+	  SpiritFlagStatus  IRQ_MAX_BO_CCA_REACH:1;         /*!< IRQ: Max number of back-off during CCA */
+	  SpiritFlagStatus  IRQ_VALID_PREAMBLE:1;           /*!< IRQ: Valid preamble detected */
+	  SpiritFlagStatus  IRQ_VALID_SYNC:1;               /*!< IRQ: Sync word detected */
+	  SpiritFlagStatus  IRQ_RSSI_ABOVE_TH:1;            /*!< IRQ: RSSI above threshold */
+	  SpiritFlagStatus  IRQ_WKUP_TOUT_LDC:1;            /*!< IRQ: Wake-up timeout in LDC mode */
 
-  SpiritFlagStatus  IRQ_SYNTH_LOCK_TIMEOUT:1;       /*!< IRQ: only for debug; LOCK state timeout */
-  SpiritFlagStatus  IRQ_SYNTH_LOCK_STARTUP:1;       /*!< IRQ: only for debug; see CALIBR_START_COUNTER */
-  SpiritFlagStatus  IRQ_SYNTH_CAL_TIMEOUT:1;        /*!< IRQ: only for debug; SYNTH calibration timeout */
-  SpiritFlagStatus  IRQ_TX_START_TIME:1;            /*!< IRQ: only for debug; TX circuitry startup time; see TX_START_COUNTER */
-  SpiritFlagStatus  IRQ_RX_START_TIME:1;            /*!< IRQ: only for debug; RX circuitry startup time; see TX_START_COUNTER */
-  SpiritFlagStatus  IRQ_RX_TIMEOUT:1;               /*!< IRQ: RX operation timeout */
-  SpiritFlagStatus  IRQ_AES_END:1;                  /*!< IRQ: AES End of operation */
-  SpiritFlagStatus  :1;                             /*!< Reserved bit */
+	  SpiritFlagStatus  IRQ_RX_DATA_READY:1;            /*!< IRQ: RX data ready */
+	  SpiritFlagStatus  IRQ_RX_DATA_DISC:1;             /*!< IRQ: RX data discarded (upon filtering) */
+	  SpiritFlagStatus  IRQ_TX_DATA_SENT:1;             /*!< IRQ: TX data sent */
+	  SpiritFlagStatus  IRQ_MAX_RE_TX_REACH:1;          /*!< IRQ: Max re-TX reached */
+	  SpiritFlagStatus  IRQ_CRC_ERROR:1;                /*!< IRQ: CRC error */
+	  SpiritFlagStatus  IRQ_TX_FIFO_ERROR:1;            /*!< IRQ: TX FIFO underflow/overflow error */
+	  SpiritFlagStatus  IRQ_RX_FIFO_ERROR:1;            /*!< IRQ: RX FIFO underflow/overflow error */
+	  SpiritFlagStatus  IRQ_TX_FIFO_ALMOST_FULL:1;      /*!< IRQ: TX FIFO almost full */
 
 } SpiritIrqs;
 
