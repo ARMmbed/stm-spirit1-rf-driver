@@ -78,7 +78,6 @@ class SimpleSpirit1 {
 	    CLEAR_RXBUF();
 	    _spirit_rx_err = false;
 	    _spirit_tx_started = false;
-    	printf("%s (%d)\n", __func__, __LINE__);
     }
 
     void start_rx_timeout(void) {
@@ -289,6 +288,10 @@ class SimpleSpirit1 {
 
     uint8_t linear_fifo_read_num_elements_tx_fifo(void) {
     	return SpiritLinearFifoReadNumElementsTxFifo();
+    }
+
+    void linear_fifo_set_almost_full_thr_rx(uint8_t cThrRxFifo) {
+    	SpiritLinearFifoSetAlmostFullThresholdRx(cThrRxFifo);
     }
 
     /** Internal Spirit Methods */

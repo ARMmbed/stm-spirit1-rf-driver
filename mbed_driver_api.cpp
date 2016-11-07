@@ -5,6 +5,9 @@
 #include "mbed_trace.h"
 #define TRACE_GROUP  "SPIRIT"
 
+/* Define beyond macro if you want to perform heavy debug tracing also in IRQ context */
+// #define HEAVY_TRACING
+
 /*Atmel RF Part Type*/
 // betzw - TODO
 typedef enum
@@ -99,16 +102,19 @@ static int8_t rf_trigger_send(uint8_t *data_ptr, uint16_t data_length, uint8_t t
 {
 	MBED_ASSERT(data_length >= 3);
 
+	/* Get Lock */
+	rf_if_lock();
+
     /*Check if transmitter is busy*/
-    if(rf_device->is_receiving()) { /* betzw - WAS: (rf_device->channel_clear() == 0)), do nOT use this but rather studa and enabe automatic CCA */
-    	/* betzw - TO INVESTIGATE: should be 'is_receiving()' but screwed up */
+    if(rf_device->is_receiving()) { /* betzw - WAS: (rf_device->channel_clear() == 0)), do NOT use this but rather study and enable automatic CCA */
     	tr_debug("%s (%d)", __func__, __LINE__);
+
+    	/* Release Lock */
+    	rf_if_unlock();
+
     	/*Return busy*/
         return -1;
     } else {
-    	/* Get Lock */
-    	rf_if_lock();
-
     	uint16_t fcf = rf_read_16_bit(data_ptr);
 
     	/*Check if transmitted data needs to be acked*/
@@ -296,7 +302,9 @@ static void rf_handle_ack(uint8_t seq_number)
             device_driver.phy_tx_done_cb(rf_radio_driver_id, mac_tx_handle, PHY_LINK_TX_DONE, 0, 0);
         }
     } else {
-    	tr_debug("%s (%d)", __func__, __LINE__);
+#ifdef HEAVY_TRACING
+		tr_debug("%s (%d)", __func__, __LINE__);
+#endif
     }
 }
 
@@ -334,17 +342,23 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 
 	rf_rx_sequence = rf_rx_buf[2];
 
+#ifdef HEAVY_TRACING
 	tr_debug("%s (%d): len=%d, ftype=%x, snr=%x, ack=%d, dst=%x, src=%x, intra=%d", __func__, __LINE__, len, frame_type,
 			rf_rx_buf[2], (*ack_requested), dst_addr_mode, src_addr_mode, panid_compr);
+#endif
 
 	if(frame_type == FC_ACK_FRAME) { // betzw: we just support to forms of ACK frames!
 		if((dst_addr_mode == 0x3) && (src_addr_mode == 0x3)) {
 			if(panid_compr) { // no PAN ID is in the frame
 				ret = rf_check_mac_address(&rf_rx_buf[3]);
+#ifdef HEAVY_TRACING
 				if(!ret) tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 			} else { // presence of dest pan id (even if indicating src pan id)
 				ret = rf_check_mac_address(&rf_rx_buf[5]);
+#ifdef HEAVY_TRACING
 				if(!ret) tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 			}
 		} else if(dst_addr_mode == 0x2) {
 	    	dst_short_adr = rf_read_16_bit(&rf_rx_buf[5]);
@@ -352,10 +366,14 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 		    	// tr_debug("%s (%d)", __func__, __LINE__);
 				ret = true;
 			} else {
+#ifdef HEAVY_TRACING
 		    	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 			}
 		}
+#ifdef HEAVY_TRACING
 		tr_debug("%s (%d): ret=%d", __func__, __LINE__, ret);
+#endif
 		(*ack_requested) = 0;  // Never acknowledge ACK frames
 		return ret;
 	}
@@ -368,74 +386,94 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 		min_size += 4; // pan id + short dest adr
 
 		if(len < 5) {
+#ifdef HEAVY_TRACING
 	    	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 			return false;
 		}
 
-		// tr_debug("%s (%d)", __func__, __LINE__);
 		dst_pan_id = rf_read_16_bit(&rf_rx_buf[3]);
 		if(dst_pan_id == 0xFFFF) {
-			// tr_debug("%s (%d)", __func__, __LINE__);
+#ifdef HEAVY_TRACING
+			tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 			ret = true;
 			break;
 		}
 
 		if(dst_pan_id == stored_pan_id) {
-			// tr_debug("%s (%d)", __func__, __LINE__);
+#ifdef HEAVY_TRACING
+			tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 			ret = true;
 			break;
 		} else {
-			// tr_debug("%s (%d): %d!=%d", __func__, __LINE__, dst_pan_id, stored_pan_id);
+#ifdef HEAVY_TRACING
+			tr_debug("%s (%d): %d!=%d", __func__, __LINE__, dst_pan_id, stored_pan_id);
+#endif
 		}
 
 		if(len < 7) {
+#ifdef HEAVY_TRACING
 	    	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 			return false;
 		}
 
-    	// tr_debug("%s (%d)", __func__, __LINE__);
     	dst_short_adr = rf_read_16_bit(&rf_rx_buf[5]);
 		if(dst_short_adr == stored_short_adr) {
-	    	// tr_debug("%s (%d)", __func__, __LINE__);
+#ifdef HEAVY_TRACING
+	    	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 			ret = true;
 			break;
 		} else {
-	    	// tr_debug("%s (%d): %d!=%d", __func__, __LINE__, dst_short_adr, stored_short_adr);
+#ifdef HEAVY_TRACING
+	    	tr_debug("%s (%d): %d!=%d", __func__, __LINE__, dst_short_adr, stored_short_adr);
+#endif
 		}
 		break;
 	case 0x03:
 		min_size += 10; // pan id + dest mac addr
 
 		if(len < 5) {
+#ifdef HEAVY_TRACING
 	    	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 			return false;
 		}
 
-		// tr_debug("%s (%d)", __func__, __LINE__);
 		dst_pan_id = rf_read_16_bit(&rf_rx_buf[3]);
 		if(dst_pan_id == 0xFFFF) {
-			// tr_debug("%s (%d)", __func__, __LINE__);
+#ifdef HEAVY_TRACING
+			tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 			ret = true;
 			break;
 		}
 
 		if(dst_pan_id == stored_pan_id) {
-			// tr_debug("%s (%d)", __func__, __LINE__);
+#ifdef HEAVY_TRACING
+			tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 			ret = true;
 			break;
 		}
 
 		if(len < 13) {
+#ifdef HEAVY_TRACING
 	    	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 			return false;
 		}
 
-    	// tr_debug("%s (%d)", __func__, __LINE__);
-		ret = rf_check_mac_address(&rf_rx_buf[5]);
+    	ret = rf_check_mac_address(&rf_rx_buf[5]);
 		break;
 	default:
 		/* not supported */
+#ifdef HEAVY_TRACING
     	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 		return false;
 	}
 
@@ -455,7 +493,9 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 				rf_src_adr_len = 2;
 				rf_src_adr[0] = rf_rx_buf[min_size-2];
 				rf_src_adr[1] = rf_rx_buf[min_size-1];
+#ifdef HEAVY_TRACING
 				tr_debug("%s (%d): %x:%x", __func__, __LINE__, rf_src_adr[0], rf_src_adr[1]);
+#endif
 			}
 			break;
 		case 0x03:
@@ -465,17 +505,23 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 			} else {
 				rf_src_adr_len = 8;
 				memcpy(&rf_src_adr[0], &rf_rx_buf[min_size-8], rf_src_adr_len);
+#ifdef HEAVY_TRACING
 				tr_debug("%s (%d): %x:%x", __func__, __LINE__, rf_src_adr[0], rf_src_adr[1]);
+#endif
 			}
 			break;
 		default:
 			/* not supported */
+#ifdef HEAVY_TRACING
 	    	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 			return false;
 		}
 	}
 
+#ifdef HEAVY_TRACING
 	tr_debug("%s (%d), ret=%d, ack=%d", __func__, __LINE__, ret, (*ack_requested));
+#endif
 	return ret;
 }
 
@@ -499,7 +545,9 @@ static inline void rf_handle_rx_end(void)
 
     /* Check if packet should be accepted */
     if(!rf_check_destination(rf_buffer_len, &ack_requested)) {
+#ifdef HEAVY_TRACING
     	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
     	return;
     }
 
@@ -507,14 +555,18 @@ static inline void rf_handle_rx_end(void)
     uint16_t fcf = rf_read_16_bit(rf_rx_buf);
     if(((fcf & MAC_FCF_FRAME_TYPE_MASK) >> MAC_FCF_FRAME_TYPE_SHIFT) == FC_ACK_FRAME) {
     	/*Send sequence number in ACK handler*/
+#ifdef HEAVY_TRACING
     	tr_debug("%s (%d), len=%u", __func__, __LINE__, (unsigned int)rf_buffer_len);
+#endif
        	rf_handle_ack(rf_rx_buf[2]);
        	return;
     }
 
     /* Kick off ACK sending */
     if(ack_requested) {
+#ifdef HEAVY_TRACING
     	tr_debug("%s (%d), len=%u", __func__, __LINE__, (unsigned int)rf_buffer_len);
+#endif
     	rf_send_ack();
     }
 
@@ -541,7 +593,9 @@ static inline void rf_handle_tx_end(void)
     /* Check if this is an ACK sending which is still pending */
 	if(rf_ack_sent) {
 		rf_ack_sent = false;
+#ifdef HEAVY_TRACING
     	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 		return; // no need to inform stack
 	}
 
@@ -571,7 +625,9 @@ static void rf_callback_func(int event) {
 		rf_handle_tx_end();
 		break;
 	case SimpleSpirit1::TX_ERR:
+#ifdef HEAVY_TRACING
     	tr_debug("%s (%d): TX_ERR!!!", __func__, __LINE__);
+#endif
 		rf_handle_tx_err();
 		break;
 	}
@@ -588,11 +644,17 @@ static void rf_ack_loop(void) {
 		/* Wait for signal */
 		rf_ack_sender.signal_wait(RF_SIG_ACK_NEEDED);
 
-    	// tr_debug("%s (%d)", __func__, __LINE__);
+#ifdef HEAVY_TRACING
+    	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
+
     	/* Get Lock */
 		rf_if_lock();
 
-    	// tr_debug("%s (%d)", __func__, __LINE__);
+#ifdef HEAVY_TRACING
+    	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
+
     	/* Prepare header */
 		uint8_t *ptr = (uint8_t*)&buffer[1];
 		if(rf_src_adr_len == 2) {
@@ -614,13 +676,16 @@ static void rf_ack_loop(void) {
 
 		/* Wait for device not receiving */
 		while(rf_device->is_receiving()) {
-			/* betzw - TO INVESTIGATE: might screw up (see above) */
-	    	// tr_debug("%s (%d)", __func__, __LINE__);
+#ifdef HEAVY_TRACING
+	    	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 			wait_us(10);
 		}
 
+#ifdef HEAVY_TRACING
     	tr_debug("%s (%d), hdr=%x, nr=%x, pan0=%x, pan1=%x, adr0=%x, adr1=%x", __func__, __LINE__,
     			buffer[0], ptr[0], ptr[1], ptr[2], ptr[3], ptr[4]);
+#endif
 
     	/* Set information that we have sent an ACK */
 		rf_ack_sent = true;
@@ -630,7 +695,8 @@ static void rf_ack_loop(void) {
 
 		/* Release Lock */
 		rf_if_unlock();
-    	tr_debug("%s (%d)", __func__, __LINE__);
+
+		tr_debug("%s (%d)", __func__, __LINE__);
 	} while(true);
 }
 
