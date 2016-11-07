@@ -8,6 +8,9 @@
 /* Define beyond macro if you want to perform heavy debug tracing also in IRQ context */
 // #define HEAVY_TRACING
 
+/* Define beyond macro if you want to use acknowledgment frames with only 3 bytes */
+#define SHORT_ACK_FRAMES
+
 /*Atmel RF Part Type*/
 // betzw - TODO
 typedef enum
@@ -53,8 +56,10 @@ static uint16_t stored_pan_id;
 #define RF_SIG_ACK_NEEDED (1<<0)
 static Thread rf_ack_sender(osPriorityRealtime);
 static uint8_t rf_rx_sequence;
+#ifndef SHORT_ACK_FRAMES
 static uint8_t rf_src_adr[8];
 static uint8_t rf_src_adr_len = 0;
+#endif
 static bool rf_ack_sent = false;
 
 /* MAC frame helper macros */
@@ -325,8 +330,10 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 	uint8_t dst_addr_mode = 0x0; /*0x00 = no address 0x01 = reserved 0x02 = 16-bit short address 0x03 = 64-bit extended address */
 	uint8_t src_addr_mode = 0x0; /*0x00 = no address 0x01 = reserved 0x02 = 16-bit short address 0x03 = 64-bit extended address */
 	uint8_t min_size = 3; // FCF & SeqNr
-	bool panid_compr = false;
 	bool ret = false;
+#ifndef SHORT_ACK_FRAMES
+	bool panid_compr = false;
+#endif
 
 	if(len < 3) {
     	tr_debug("%s (%d)", __func__, __LINE__);
@@ -338,16 +345,21 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 	(*ack_requested) = ((fcf & MAC_FCF_ACK_REQ_BIT_MASK) >> MAC_FCF_ACK_REQ_BIT_SHIFT);
 	dst_addr_mode = ((fcf & MAC_FCF_DST_ADDR_MASK) >> MAC_FCF_DST_ADDR_SHIFT);
 	src_addr_mode = ((fcf & MAC_FCF_SRC_ADDR_MASK) >> MAC_FCF_SRC_ADDR_SHIFT);
+#ifndef SHORT_ACK_FRAMES
 	panid_compr = ((fcf & MAC_FCF_INTRA_PANID_MASK) >> MAC_FCF_INTRA_PANID_SHIFT);
-
-	rf_rx_sequence = rf_rx_buf[2];
+#endif
 
 #ifdef HEAVY_TRACING
 	tr_debug("%s (%d): len=%d, ftype=%x, snr=%x, ack=%d, dst=%x, src=%x, intra=%d", __func__, __LINE__, len, frame_type,
 			rf_rx_buf[2], (*ack_requested), dst_addr_mode, src_addr_mode, panid_compr);
 #endif
 
-	if(frame_type == FC_ACK_FRAME) { // betzw: we just support to forms of ACK frames!
+	if(frame_type == FC_ACK_FRAME) { // betzw: we support up to two different forms of ACK frames!
+#ifdef SHORT_ACK_FRAMES
+		if((len == 3) && (dst_addr_mode == 0x0) && (src_addr_mode == 0x0)) {
+			ret = true;
+		}
+#else // !SHORT_ACK_FRAMES
 		if((dst_addr_mode == 0x3) && (src_addr_mode == 0x3)) {
 			if(panid_compr) { // no PAN ID is in the frame
 				ret = rf_check_mac_address(&rf_rx_buf[3]);
@@ -371,6 +383,8 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 #endif
 			}
 		}
+#endif // !SHORT_ACK_FRAMES
+
 #ifdef HEAVY_TRACING
 		tr_debug("%s (%d): ret=%d", __func__, __LINE__, ret);
 #endif
@@ -478,6 +492,9 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 	}
 
 	if(ret && (*ack_requested)) {
+		rf_rx_sequence = rf_rx_buf[2];
+
+#ifndef SHORT_ACK_FRAMES
 		if(!panid_compr) { // Src PAN Id is present
 			min_size += 2; // src pan id
 		}
@@ -517,6 +534,7 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 #endif
 			return false;
 		}
+#endif // !SHORT_ACK_FRAMES
 	}
 
 #ifdef HEAVY_TRACING
@@ -633,6 +651,59 @@ static void rf_callback_func(int event) {
 	}
 }
 
+#ifdef SHORT_ACK_FRAMES
+static void rf_ack_loop(void) {
+	static uint16_t buffer[2] = {
+			(FC_ACK_FRAME << MAC_FCF_FRAME_TYPE_SHIFT),
+			0x0
+	};
+
+	tr_debug("%s (%d)", __func__, __LINE__);
+
+	do {
+		/* Wait for signal */
+		rf_ack_sender.signal_wait(RF_SIG_ACK_NEEDED);
+
+#ifdef HEAVY_TRACING
+    	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
+
+    	/* Get Lock */
+		rf_if_lock();
+
+#ifdef HEAVY_TRACING
+    	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
+
+		/* Prepare payload */
+		uint8_t *ptr = (uint8_t*)&buffer[1];
+		ptr[0] = rf_rx_sequence;   // Sequence number
+
+		/* Wait for device not receiving */
+		while(rf_device->is_receiving()) {
+#ifdef HEAVY_TRACING
+	    	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
+			wait_us(10);
+		}
+
+#ifdef HEAVY_TRACING
+    	tr_debug("%s (%d), hdr=%x", __func__, __LINE__, buffer[0], ptr[0];
+#endif
+
+    	/* Set information that we have sent an ACK */
+		rf_ack_sent = true;
+
+        /*Send the packet*/
+        rf_device->send((uint8_t*)buffer, 3);
+
+		/* Release Lock */
+		rf_if_unlock();
+
+		tr_debug("%s (%d)", __func__, __LINE__);
+	} while(true);
+}
+#else // !SHORT_ACK_FRAMES
 static void rf_ack_loop(void) {
 	static uint16_t buffer[6];
 	uint8_t *dest;
@@ -658,11 +729,12 @@ static void rf_ack_loop(void) {
     	/* Prepare header */
 		uint8_t *ptr = (uint8_t*)&buffer[1];
 		if(rf_src_adr_len == 2) {
-			buffer[0] = FC_ACK_FRAME | (0x02 << MAC_FCF_DST_ADDR_SHIFT); // dest PAN id present
+			buffer[0] = (FC_ACK_FRAME << MAC_FCF_FRAME_TYPE_SHIFT) | (0x02 << MAC_FCF_DST_ADDR_SHIFT); // dest PAN id present
 			dest = &ptr[3];
 			msg_len = 7;
 		} else {
-			buffer[0] = FC_ACK_FRAME |
+			buffer[0] =
+					(FC_ACK_FRAME << MAC_FCF_FRAME_TYPE_SHIFT) |
 					(0x03 << MAC_FCF_DST_ADDR_SHIFT) |
 					(0x03 << MAC_FCF_SRC_ADDR_SHIFT) |
 					(0x01 << MAC_FCF_INTRA_PANID_SHIFT); // no PAN IDs
@@ -699,6 +771,7 @@ static void rf_ack_loop(void) {
 		tr_debug("%s (%d)", __func__, __LINE__);
 	} while(true);
 }
+#endif // !SHORT_ACK_FRAMES
 
 static void rf_init(void) {
 	rf_device = &SimpleSpirit1::CreateInstance(D11, D12, D13, D9, D10, D2);
