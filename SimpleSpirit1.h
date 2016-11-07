@@ -338,30 +338,6 @@ class SimpleSpirit1 {
     /** Destructor **/
     ~SimpleSpirit1(void); // should never be called!
 
-private:
-#ifdef CONTIKI // betzw - TODO
-    /*** Original Contiki APIs & Variables ***/
-    /** Interrupt callback just detected an ack **/
-    int just_got_an_ack;
-
-    /** Variable(s) for Original API(s) **/
-    int packet_is_prepared;
-
-    /** Prepare the radio with a packet to be sent. **/
-    int prepare_contiki(const void *payload, unsigned short payload_len);
-
-    /** Send the packet that has previously been prepared. **/
-    int transmit_contiki(unsigned short payload_len);
-
-    /** Prepare & Transmit */
-    int send_contiki(const void *payload, unsigned short payload_len) {
-      if(prepare_contiki(payload, payload_len) == RADIO_TX_ERR) {
-        return RADIO_TX_ERR;
-      }
-      return transmit_contiki(payload_len);
-    }
-#endif // CONTIKI
-
 public:
     enum {
     	RX_DONE,

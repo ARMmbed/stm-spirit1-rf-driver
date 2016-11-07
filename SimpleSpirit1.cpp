@@ -72,10 +72,6 @@ void SimpleSpirit1::init() {
 
 	/* init cube vars */
 	spirit_on = OFF;
-#ifdef CONTIKI // betzw - TODO
-	packet_is_prepared = 0;
-	just_got_an_ack = 0;
-#endif // CONTIKI
 	last_rssi = 0 ; //MGR
 	last_lqi = 0 ;  //MGR
 
@@ -161,112 +157,6 @@ void SimpleSpirit1::init() {
 	linear_fifo_set_almost_full_thr_rx(SPIRIT_MAX_FIFO_LEN-(MAX_PACKET_LEN+1));
 #endif
 }
-
-#ifdef CONTIKI // betzw - TODO
-/** Prepare the radio with a packet to be sent. **/
-int SimpleSpirit1::prepare_contiki(const void *payload, unsigned short payload_len) {
-	PRINTF("Spirit1: prep %u\n", payload_len);
-	packet_is_prepared = 0;
-
-	/* Checks if the payload length is supported */
-	if(payload_len > MAX_PACKET_LEN) {
-		return RADIO_TX_ERR;
-	}
-
-	/* Should we delay for an ack? */
-#if NULLRDC_CONF_802154_AUTOACK
-	frame802154_t info154;
-	wants_an_ack = 0;
-	if(payload_len > ACK_LEN
-			&& frame802154_parse((char*)payload, payload_len, &info154) != 0) {
-		if(info154.fcf.frame_type == FRAME802154_DATAFRAME
-				&& info154.fcf.ack_required != 0) {
-			wants_an_ack = 1;
-		}
-	}
-#endif /* NULLRDC_CONF_802154_AUTOACK */
-
-	/* Sets the length of the packet to send */
-	disable_spirit_irq();
-	cmd_strobe(SPIRIT1_STROBE_FTX);
-	pkt_basic_set_payload_length(payload_len);
-	spi_write_linear_fifo(payload_len, (uint8_t *)payload);
-	enable_spirit_irq();
-
-	PRINTF("PREPARE OUT\n");
-
-	packet_is_prepared = 1;
-	return RADIO_TX_OK;
-}
-
-/** Send the packet that has previously been prepared. **/
-int SimpleSpirit1::transmit_contiki(unsigned short payload_len) {
-	/* This function blocks until the packet has been transmitted */
-	//rtimer_clock_t rtimer_txdone, rtimer_rxack;
-
-	PRINTF("TRANSMIT IN\n");
-	if(!packet_is_prepared) {
-		return RADIO_TX_ERR;
-	}
-
-	/* Stores the length of the packet to send */
-	/* Others spirit_radio_prepare will be in hold */
-	spirit_tx_len = payload_len;
-
-	/* Puts the SPIRIT1 in TX state */
-	receiving_packet = 0;
-	set_ready_state();
-	cmd_strobe(SPIRIT1_STROBE_TX);
-	just_got_an_ack = 0;
-	BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_TX, 1);
-	//BUSYWAIT_UNTIL(SPIRIT1_STATUS() != SPIRIT1_STATE_TX, 4); //For GFSK with high data rate
-	BUSYWAIT_UNTIL(SPIRIT1_STATUS() != SPIRIT1_STATE_TX, 50); //For FSK with low data rate
-
-	/* Reset radio - needed for immediate RX of ack */
-	CLEAR_TXBUF();
-	CLEAR_RXBUF();
-	disable_spirit_irq();
-	irq_clear_status();
-	receiving_packet = 0;
-	cmd_strobe(SPIRIT1_STROBE_SABORT);
-	wait_us(SABORT_WAIT_US);
-	cmd_strobe(SPIRIT1_STROBE_READY);
-	BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_READY, 1);
-	cmd_strobe(SPIRIT1_STROBE_FRX);
-	cmd_strobe(SPIRIT1_STROBE_RX);
-	BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, 1);
-	enable_spirit_irq();
-
-#if XXX_ACK_WORKAROUND
-	just_got_an_ack = 1;
-#endif /* XXX_ACK_WORKAROUND */
-
-#if NULLRDC_CONF_802154_AUTOACK
-	if (wants_an_ack) {
-		rtimer_txdone = us_ticker_read();
-		BUSYWAIT_UNTIL(just_got_an_ack, 2);
-		rtimer_rxack = us_ticker_read();
-
-		if(just_got_an_ack) {
-			ACKPRINTF("debug_ack: ack received after %u us\n",
-					(uint32_t)(rtimer_rxack - rtimer_txdone));
-		} else {
-			ACKPRINTF("debug_ack: no ack received\n");
-		}
-	}
-#endif /* NULLRDC_CONF_802154_AUTOACK */
-
-	PRINTF("TRANSMIT OUT\n");
-
-	CLEAR_TXBUF();
-
-	packet_is_prepared = 0;
-
-	wait_us(1);
-
-	return RADIO_TX_OK;
-}
-#endif // CONTIKI
 
 int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 	/* Checks if the payload length is supported */
@@ -468,11 +358,6 @@ int SimpleSpirit1::read(void *buf, unsigned int bufsize)
 	} else {
 		/* Copies the packet received */
 		memcpy(buf, spirit_rx_buf, spirit_rx_len);
-
-#ifdef CONTIKI // betzw - TODO
-		packetbuf_set_attr(PACKETBUF_ATTR_RSSI, last_rssi);        //MGR
-		packetbuf_set_attr(PACKETBUF_ATTR_LINK_QUALITY, last_lqi); //MGR
-#endif
 
 		bufsize = spirit_rx_len;
 		_is_receiving = false;
