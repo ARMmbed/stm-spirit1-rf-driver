@@ -42,13 +42,26 @@
 #define SPIRIT_MAX_FIFO_LEN         (96) // betzw - WAS: 600
 /*---------------------------------------------------------------------------*/
 
+/* Define beyond macro when your network includes a platform - like the K64F from
+ * Freescale - which suffers from a not yet analyzed (HW) bug in delivering/receiving
+ * further interrupts by/from Spirit after having reached the RX FIFO threshold and
+ * elaborated the corresponding 'IRQ_RX_FIFO_ALMOST_FULL' interrupt.
+ * NOTE: this enables just a workaround!!!
+ */
+#define RX_FIFO_THR_WA
+
 /**    
  * The MAX_PACKET_LEN is an arbitrary value used to define the two array
  * spirit_txbuf and spirit_rxbuf.
  * The SPIRIT1 supports with its packet handler a length of 65,535 bytes,
  * and in direct mode (without packet handler) there is no limit of data.
- */  
+ */
+#ifdef RX_FIFO_THR_WA
+#define MAX_PACKET_LEN              (SPIRIT_MAX_FIFO_LEN-1)
+#else
 #define MAX_PACKET_LEN              (255) // betzw - WAS: SPIRIT_MAX_FIFO_LEN, but LEN_WIDTH is set to 7 so the variable payload length is from 0 to 255 bytes
+#endif
+
 /*---------------------------------------------------------------------------*/
 /**    
  * Spirit1 IC version

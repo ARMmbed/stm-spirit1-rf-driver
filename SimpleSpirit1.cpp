@@ -156,6 +156,10 @@ void SimpleSpirit1::init() {
 			SPIRIT_GPIO_DIG_OUT_IRQ
 	};
 	spirit_gpio_init(&x_gpio_init);
+
+#ifdef RX_FIFO_THR_WA
+	linear_fifo_set_almost_full_thr_rx(SPIRIT_MAX_FIFO_LEN-(MAX_PACKET_LEN+1));
+#endif
 }
 
 #ifdef CONTIKI // betzw - TODO
