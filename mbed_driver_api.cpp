@@ -205,7 +205,7 @@ static int8_t rf_extension(phy_extension_type_e extension_type, uint8_t *data_pt
 
         /*Return frame pending status*/
         case PHY_EXTENSION_READ_LAST_ACK_PENDING_STATUS:
-        	// tr_debug("%s (%d), need_ack=%x", __func__, __LINE__, (unsigned int)need_ack);
+        	tr_debug("%s (%d), need_ack=%x", __func__, __LINE__, (unsigned int)need_ack);
             *data_ptr = need_ack;
             break;
 
@@ -331,7 +331,7 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 	uint8_t src_addr_mode = 0x0; /*0x00 = no address 0x01 = reserved 0x02 = 16-bit short address 0x03 = 64-bit extended address */
 	uint8_t min_size = 3; // FCF & SeqNr
 	bool ret = false;
-#ifndef SHORT_ACK_FRAMES
+#if !defined(SHORT_ACK_FRAMES) || defined(HEAVY_TRACING)
 	bool panid_compr = false;
 #endif
 
@@ -345,7 +345,7 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 	(*ack_requested) = ((fcf & MAC_FCF_ACK_REQ_BIT_MASK) >> MAC_FCF_ACK_REQ_BIT_SHIFT);
 	dst_addr_mode = ((fcf & MAC_FCF_DST_ADDR_MASK) >> MAC_FCF_DST_ADDR_SHIFT);
 	src_addr_mode = ((fcf & MAC_FCF_SRC_ADDR_MASK) >> MAC_FCF_SRC_ADDR_SHIFT);
-#ifndef SHORT_ACK_FRAMES
+#if !defined(SHORT_ACK_FRAMES) || defined(HEAVY_TRACING)
 	panid_compr = ((fcf & MAC_FCF_INTRA_PANID_MASK) >> MAC_FCF_INTRA_PANID_SHIFT);
 #endif
 
@@ -375,7 +375,7 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 		} else if(dst_addr_mode == 0x2) {
 	    	dst_short_adr = rf_read_16_bit(&rf_rx_buf[5]);
 			if(dst_short_adr == stored_short_adr) {
-		    	// tr_debug("%s (%d)", __func__, __LINE__);
+		    	tr_debug("%s (%d)", __func__, __LINE__);
 				ret = true;
 			} else {
 #ifdef HEAVY_TRACING
@@ -537,8 +537,7 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 #endif // !SHORT_ACK_FRAMES
 	}
 
-#ifdef HEAVY_TRACING
-	tr_debug("%s (%d), ret=%d, ack=%d", __func__, __LINE__, ret, (*ack_requested));
+#ifdef HEAVY_tr_debug tr_debug("%s (%d), ret=%d, ack=%d", __func__, __LINE__, ret, (*ack_requested));
 #endif
 	return ret;
 }
@@ -688,7 +687,7 @@ static void rf_ack_loop(void) {
 		}
 
 #ifdef HEAVY_TRACING
-    	tr_debug("%s (%d), hdr=%x", __func__, __LINE__, buffer[0], ptr[0];
+    	tr_debug("%s (%d), hdr=%x, nr=%x", __func__, __LINE__, buffer[0], ptr[0]);
 #endif
 
     	/* Set information that we have sent an ACK */

@@ -466,8 +466,6 @@ void SimpleSpirit1::IrqHandler() {
 
 	/* Transmission error */
 	if(x_irq_status.IRQ_TX_FIFO_ERROR) {
-		error("IRQ_TX_FIFO_ERROR should never happen!\n");
-
 		cmd_strobe(SPIRIT1_STROBE_FTX);
 		if(_spirit_tx_started) {
 			_spirit_tx_started = false;
