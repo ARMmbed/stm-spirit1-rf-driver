@@ -2,13 +2,6 @@
 #include "SimpleSpirit1.h"
 #include "radio_spi.h"
 
-#if NULLRDC_CONF_802154_AUTOACK
-#define ACK_LEN 3
-static int wants_an_ack = 0; /* The packet sent expects an ack */
-//#define ACKPRINTF printf
-#define ACKPRINTF(...)
-#endif /* NULLRDC_CONF_802154_AUTOACK */
-
 #define SPIRIT_GPIO_IRQ			(SPIRIT_GPIO_3)
 
 #define SPIRIT1_STATUS()		(arch_refresh_status() & SPIRIT1_STATE_STATEBITS)
@@ -118,6 +111,7 @@ void SimpleSpirit1::init() {
 	irq_set_status(RX_FIFO_ERROR, S_ENABLE);
 	irq_set_status(RX_FIFO_ALMOST_FULL, S_ENABLE);
 	irq_set_status(VALID_SYNC, S_ENABLE);
+	irq_set_status(MAX_BO_CCA_REACH, S_ENABLE);
 
 	/* Configure Spirit1 */
 	radio_persisten_rx(S_ENABLE);
@@ -145,6 +139,17 @@ void SimpleSpirit1::init() {
 	};
 	spirit_gpio_init(&x_gpio_init);
 
+	/* Setup CSMA/CA */
+	CsmaInit x_csma_init = {
+			S_DISABLE,        // no persistent mode
+			TBIT_TIME_64,     // Tcca time
+			TCCA_TIME_3,      // Lcca length
+			3,                // max nr of backoffs (<8)
+			1,                // BU counter seed
+			8                 // BU prescaler
+	};
+	csma_ca_init(&x_csma_init);
+
 #ifdef RX_FIFO_THR_WA
 	linear_fifo_set_almost_full_thr_rx(SPIRIT_MAX_FIFO_LEN-(MAX_PACKET_LEN+1));
 #endif
@@ -167,6 +172,7 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 #endif
 
 	pkt_basic_set_payload_length(payload_len); // set desired payload len
+	csma_ca_state(S_ENABLE); // enable CSMA/CA
 
 	int i = 0;
 	int remaining = payload_len;
@@ -197,7 +203,9 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 	enable_spirit_irq();
 
 	BUSYWAIT_UNTIL(SPIRIT1_STATUS() != SPIRIT1_STATE_TX, 50);
+#ifndef NDEBUG
 	// debug_if(!(linear_fifo_read_num_elements_tx_fifo() == 0), "\n\rassert failed in: %s (%d)\n\r", __func__, __LINE__);
+#endif
 
 	return RADIO_TX_OK;
 }
@@ -406,7 +414,6 @@ int SimpleSpirit1::channel_clear(void)
 		disable_spirit_irq();
 		cmd_strobe(SPIRIT1_STROBE_FRX);
 		cmd_strobe(SPIRIT1_STROBE_RX);
-		/*    SpiritCmdStrobeRx();*/
 		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, 10);
 		CLEAR_RXBUF();
 		_spirit_rx_err = false;
@@ -438,6 +445,9 @@ void SimpleSpirit1::IrqHandler() {
 
 	/* Reception errors */
 	if((x_irq_status.IRQ_RX_FIFO_ERROR) || (x_irq_status.IRQ_RX_DATA_DISC) || (x_irq_status.IRQ_RX_TIMEOUT)) {
+#ifndef NDEBUG
+		debug("\n\r%s (%d)", __func__, __LINE__);
+#endif
 		_spirit_rx_err = true;
 		_is_receiving = false;
 		CLEAR_RXBUF();
@@ -458,6 +468,7 @@ void SimpleSpirit1::IrqHandler() {
 #ifndef NDEBUG
 		debug("\n\r%s (%d)", __func__, __LINE__);
 #endif
+		csma_ca_state(S_DISABLE); // disable CSMA/CA
 		cmd_strobe(SPIRIT1_STROBE_FTX);
 		if(_spirit_tx_started) {
 			_spirit_tx_started = false;
@@ -486,9 +497,9 @@ void SimpleSpirit1::IrqHandler() {
 		debug_if(!_spirit_tx_started, "\n\rassert failed in: %s (%d)\n\r", __func__, __LINE__);
 #endif
 
+		csma_ca_state(S_DISABLE); // disable CSMA/CA
 		cmd_strobe(SPIRIT1_STROBE_FRX);
 		cmd_strobe(SPIRIT1_STROBE_RX);
-		/*    SpiritCmdStrobeRx();*/
 		CLEAR_TXBUF();
 		CLEAR_RXBUF();
 		_spirit_rx_err = false;
@@ -496,7 +507,7 @@ void SimpleSpirit1::IrqHandler() {
 
 		/* call user callback */
 		if(_current_irq_callback) {
-			_current_irq_callback(TX_DONE); // betzw - TODO: define enums for callback values
+			_current_irq_callback(TX_DONE);
 		}
 	}
 
@@ -561,17 +572,30 @@ void SimpleSpirit1::IrqHandler() {
 			last_rssi = qi_get_rssi(); //MGR
 			last_lqi  = qi_get_lqi();  //MGR
 
-#if NULLRDC_CONF_802154_AUTOACK
-			if (spirit_rxbuf[0] == ACK_LEN) {
-				/* For debugging purposes we assume this is an ack for us */
-				just_got_an_ack = 1;
-			}
-#endif /* NULLRDC_CONF_802154_AUTOACK */
-
 			/* call user callback */
 			if(_current_irq_callback) {
-				_current_irq_callback(RX_DONE); // betzw - TODO: define enums for callback values
+				_current_irq_callback(RX_DONE);
 			}
 		}
+	}
+
+	/* Max number of back-off during CCA */
+	if(x_irq_status.IRQ_MAX_BO_CCA_REACH) {
+#ifndef NDEBUG
+		debug("\n\r%s (%d)", __func__, __LINE__);
+#endif
+		csma_ca_state(S_DISABLE); // disable CSMA/CA
+		cmd_strobe(SPIRIT1_STROBE_FRX);
+		cmd_strobe(SPIRIT1_STROBE_RX);
+		CLEAR_TXBUF();
+		CLEAR_RXBUF();
+		_spirit_rx_err = false;
+		_spirit_tx_started = false;
+
+		/* call user callback */
+		if(_current_irq_callback) {
+			_current_irq_callback(TX_ERR);
+		}
+
 	}
 }

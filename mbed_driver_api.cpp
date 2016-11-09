@@ -116,7 +116,7 @@ static int8_t rf_trigger_send(uint8_t *data_ptr, uint16_t data_length, uint8_t t
 	rf_if_lock();
 
     /*Check if transmitter is busy*/
-    if(rf_device->is_receiving()) { /* betzw - WAS: (rf_device->channel_clear() == 0)), do NOT use this but rather study and enable automatic CCA */
+    if(rf_device->is_receiving()) { /* betzw - WAS: (rf_device->channel_clear() != 0)), do NOT use this but rather study and enable automatic CCA */
     	tr_debug("%s (%d)", __func__, __LINE__);
 
     	/* Release Lock */

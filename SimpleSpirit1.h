@@ -271,6 +271,17 @@ class SimpleSpirit1 {
     	timer_set_rx_timeout_counter(0);
     }
 
+    /** CSMA/CA Instance Methods **/
+    void csma_ca_state(SpiritFunctionalState xNewState) {
+    	SpiritCsma(xNewState);
+    }
+
+    void csma_ca_init(CsmaInit* pxCsmaInit) {
+    	csma_ca_state(S_DISABLE); // Disabled at init
+    	SpiritCsmaInit(pxCsmaInit);
+    	SpiritCsmaSeedReloadMode(S_DISABLE); // always disable seed reload
+    }
+
     /** Command Instance Methods**/
     void cmd_strobe(uint8_t cmd) {
     	SpiritCmdStrobeCommand((SpiritCmd)cmd);
@@ -403,7 +414,7 @@ public:
 
     /** Perform a Clear-Channel Assessment (CCA) to find out if there is
         a packet in the air or not.
-        Returns 0 if packet has been seen.
+        Returns 1 if packet has been seen.
       */
     int channel_clear(void);
 
