@@ -105,7 +105,12 @@ static inline uint16_t rf_read_16_bit(uint8_t *data_ptr) { // little-endian
 
 static int8_t rf_trigger_send(uint8_t *data_ptr, uint16_t data_length, uint8_t tx_handle, data_protocol_e data_protocol)
 {
-	MBED_ASSERT(data_length >= 3);
+#ifndef NDEBUG
+	debug_if(!(data_length >= 3), "\n\rassert failed in: %s (%d)\n\r", __func__, __LINE__);
+#endif
+
+	/* Give 'rf_ack_sender' a better chance to run */
+	Thread::yield();
 
 	/* Get Lock */
 	rf_if_lock();
@@ -537,7 +542,8 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 #endif // !SHORT_ACK_FRAMES
 	}
 
-#ifdef HEAVY_tr_debug tr_debug("%s (%d), ret=%d, ack=%d", __func__, __LINE__, ret, (*ack_requested));
+#ifdef HEAVY_TRACING
+	tr_debug("%s (%d), ret=%d, ack=%d", __func__, __LINE__, ret, (*ack_requested));
 #endif
 	return ret;
 }
@@ -696,10 +702,14 @@ static void rf_ack_loop(void) {
         /*Send the packet*/
         rf_device->send((uint8_t*)buffer, 3);
 
-		/* Release Lock */
+    	tr_debug("%s (%d), hdr=%x, nr=%x", __func__, __LINE__, buffer[0], ptr[0]);
+
+    	/* Release Lock */
 		rf_if_unlock();
 
+#ifdef HEAVY_TRACING
 		tr_debug("%s (%d)", __func__, __LINE__);
+#endif
 	} while(true);
 }
 #else // !SHORT_ACK_FRAMES

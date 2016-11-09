@@ -1,5 +1,6 @@
 /*** Mbed Includes ***/
 #include "mbed.h"
+#include "mbed_debug.h"
 
 
 /*** Cube Includes ***/
@@ -78,6 +79,9 @@ class SimpleSpirit1 {
 	    CLEAR_RXBUF();
 	    _spirit_rx_err = false;
 	    _spirit_tx_started = false;
+#ifndef NDEBUG
+	    debug("\n\r%s (%d)\n\r", __func__, __LINE__);
+#endif
     }
 
     void start_rx_timeout(void) {
@@ -114,11 +118,15 @@ class SimpleSpirit1 {
     void disable_spirit_irq(void) {
     	_irq.disable_irq();
     	_nr_of_irq_disables++;
-    	MBED_ASSERT(_nr_of_irq_disables != 0);
+#ifndef NDEBUG
+    	debug_if(_nr_of_irq_disables == 0, "\n\rassert failed in: %s (%d)\n\r", __func__, __LINE__);
+#endif
     }
 
     void enable_spirit_irq(void) {
-    	MBED_ASSERT(_nr_of_irq_disables > 0);
+#ifndef NDEBUG
+    	debug_if(_nr_of_irq_disables == 0, "\n\rassert failed in: %s (%d)\n\r", __func__, __LINE__);
+#endif
     	if(--_nr_of_irq_disables == 0)
     		_irq.enable_irq();
     }
