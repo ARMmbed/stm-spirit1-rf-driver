@@ -33,7 +33,6 @@ static uint8_t mac_address[8] = {
 };
 static phy_device_driver_s device_driver;
 static int8_t rf_radio_driver_id = -1;
-static uint8_t rf_rnd_rssi = 0;
 
 const phy_rf_channel_configuration_s phy_subghz = {868000000, 1000000, 250000, 11, M_GFSK};
 
@@ -602,7 +601,11 @@ static inline void rf_handle_rx_end(void)
     /* TODO - betzw: what to do? */
     // rf_buffer_len -= 2;
 
-    /* Send received data and link information to the network stack */
+#ifdef HEAVY_TRACING
+      	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
+
+        	/* Send received data and link information to the network stack */
     if( device_driver.phy_rx_cb ){
         device_driver.phy_rx_cb(rf_rx_buf, rf_buffer_len, rf_lqi, rf_rssi, rf_radio_driver_id);
     }
@@ -856,8 +859,14 @@ extern "C" void rf_read_mac_address(uint8_t *ptr)
  */
 extern "C" int8_t rf_read_random(void)
 {
-	tr_debug("%s (%d)", __func__, __LINE__);
-    return rf_rnd_rssi;
+	float tmp;
+
+	rf_device->channel_clear();
+	tmp = rf_device->get_last_rssi_dbm();
+	tmp *= -10;
+
+	tr_debug("%s (%d): ret=%d", __func__, __LINE__, (uint8_t)tmp);
+    return (uint8_t)tmp;
 }
 
 /*

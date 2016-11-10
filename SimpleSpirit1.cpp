@@ -6,8 +6,6 @@
 
 #define SPIRIT1_STATUS()		(arch_refresh_status() & SPIRIT1_STATE_STATEBITS)
 
-#define SABORT_WAIT_US			(400)
-
 #define BUSYWAIT_UNTIL(cond, millisecs)                                        					\
 		do {                                                                 					 		\
 			uint32_t start = us_ticker_read();                         							\
@@ -238,7 +236,7 @@ int SimpleSpirit1::off(void) {
 		/* Clear any pending irqs */
 		irq_clear_status();
 
-		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_READY, 10);
+		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_READY, 3000);
 		if(SPIRIT1_STATUS() != SPIRIT1_STATE_READY) {
 #ifndef NDEBUG
 			debug("\n\rSpirit1: failed off->ready\n\r");
@@ -248,7 +246,7 @@ int SimpleSpirit1::off(void) {
 
 		/* Puts the SPIRIT1 in STANDBY */
 		cmd_strobe(SPIRIT1_STROBE_STANDBY);
-		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_STANDBY, 10);
+		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_STANDBY, 3000);
 		if(SPIRIT1_STATUS() != SPIRIT1_STATE_STANDBY) {
 #ifndef NDEBUG
 			debug("\n\rSpirit1: failed off->standby\n\r");
@@ -270,11 +268,10 @@ int SimpleSpirit1::off(void) {
 
 int SimpleSpirit1::on(void) {
 	cmd_strobe(SPIRIT1_STROBE_SABORT);
-	wait_us(SABORT_WAIT_US);
 	if(spirit_on == OFF) {
 		/* ensure we are in READY state as we go from there to Rx */
 		cmd_strobe(SPIRIT1_STROBE_READY);
-		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_READY, 10);
+		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_READY, 3000);
 		if(SPIRIT1_STATUS() != SPIRIT1_STATE_READY) {
 #ifndef NDEBUG
 			debug("\n\rSpirit1: failed to turn on\n\r");
@@ -285,7 +282,7 @@ int SimpleSpirit1::on(void) {
 		/* now we go to Rx */
 		cmd_strobe(SPIRIT1_STROBE_FRX);
 		cmd_strobe(SPIRIT1_STROBE_RX);
-		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, 10);
+		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, 3000);
 		if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX) {
 #ifndef NDEBUG
 			debug("\n\rSpirit1: failed to enter rx\n\r");
@@ -338,12 +335,11 @@ int SimpleSpirit1::read(void *buf, unsigned int bufsize)
 	if(IS_RXBUF_EMPTY()) {
 		CLEAR_RXBUF();
 		cmd_strobe(SPIRIT1_STROBE_SABORT);
-		wait_us(SABORT_WAIT_US);
 		cmd_strobe(SPIRIT1_STROBE_READY);
-		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_READY, 1);
+		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_READY, 3000);
 		cmd_strobe(SPIRIT1_STROBE_FRX);
 		cmd_strobe(SPIRIT1_STROBE_RX);
-		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, 1);
+		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, 3000);
 		_spirit_rx_err = false;
 		_is_receiving = false;
 		stop_rx_timeout();
@@ -398,6 +394,9 @@ int SimpleSpirit1::channel_clear(void)
 		} while((st_lib_g_x_status.MC_STATE != MC_STATE_READY) && (us_ticker_read() < timeout));
 		if(st_lib_g_x_status.MC_STATE != MC_STATE_READY) {
 			enable_spirit_irq();
+#ifndef NDEBUG
+			debug("\n\rSpirit1: channel clear failed\n\r");
+#endif
 			return 1;
 		}
 	}

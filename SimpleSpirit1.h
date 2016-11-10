@@ -85,7 +85,7 @@ class SimpleSpirit1 {
     }
 
     void start_rx_timeout(void) {
-    	_rx_receiving_timeout.attach_us(Callback<void()>(this, &SimpleSpirit1::rx_timeout_handler), 500 * 1000); // 5ms
+    	_rx_receiving_timeout.attach_us(Callback<void()>(this, &SimpleSpirit1::rx_timeout_handler), 500 * 1000); // 500ms
     }
 
     void stop_rx_timeout(void) {
@@ -136,8 +136,9 @@ class SimpleSpirit1 {
 
     void enter_shutdown() { _shut_down = 1; }
     void exit_shutdown() {
+    	wait_ms(2); // wait two milliseconds (to allow Spirit1 to shut down)
     	_shut_down = 0;
-    	wait_ms(2); // wait two milliseconds (to allow Spirit1 a proper boot-up sequence)
+    	wait_ms(10); // wait ten milliseconds (to allow Spirit1 a proper boot-up sequence)
     }
 
     void cs_to_sclk_delay(void) {
