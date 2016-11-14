@@ -134,11 +134,14 @@ class SimpleSpirit1 {
     void chip_select() { _chip_select = 0; }
     void chip_unselect() { _chip_select = 1; }
 
-    void enter_shutdown() { _shut_down = 1; }
+    void enter_shutdown() {
+    	_shut_down = 1;
+    	wait_ms(5); // wait 5 milliseconds (to allow Spirit1 to shut down)
+    }
+
     void exit_shutdown() {
-    	wait_ms(2); // wait two milliseconds (to allow Spirit1 to shut down)
     	_shut_down = 0;
-    	wait_ms(10); // wait ten milliseconds (to allow Spirit1 a proper boot-up sequence)
+    	wait_ms(10); // wait 10 milliseconds (to allow Spirit1 a proper boot-up sequence)
     }
 
     void cs_to_sclk_delay(void) {
@@ -314,9 +317,14 @@ class SimpleSpirit1 {
     	SpiritLinearFifoSetAlmostFullThresholdRx(cThrRxFifo);
     }
 
+    /** Calibration Instance Methods **/
+    void calibration_rco(SpiritFunctionalState xNewState) {
+    	SpiritCalibrationRco(xNewState);
+    }
+
     /** Internal Spirit Methods */
     void set_ready_state(void);
-    uint16_t arch_refresh_status(void);
+    uint8_t refresh_state(void);
 
     /** Friend Functions **/
     friend StatusBytes SdkEvalSpiWriteRegisters(uint8_t cRegAddress, uint8_t cNbBytes, uint8_t* pcBuffer);
@@ -345,7 +353,7 @@ class SimpleSpirit1 {
     }
 
     /** Init Instance Method **/
-    void init(void);
+    void init();
 
     /** Spirit Irq Callback */
     void IrqHandler();
@@ -444,7 +452,7 @@ public:
     }
 
     /** Reset Board **/
-    void reset_board(void) {
+    void reset_board() {
     	init();
     }
 };

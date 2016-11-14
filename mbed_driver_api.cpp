@@ -138,10 +138,12 @@ static int8_t rf_trigger_send(uint8_t *data_ptr, uint16_t data_length, uint8_t t
     	/*Store TX handle*/
     	mac_tx_handle = tx_handle;
 
-    	tr_debug("%s (%d), len=%d, tx_handle=%x, tx_seq=%x, need_ack=%d (%x:%x, %x:%x, %x:%x, %x:%x)", __func__, __LINE__,
+// #ifdef HEAVY_TRACING
+    	tr_info("%s (%d), len=%d, tx_handle=%x, tx_seq=%x, need_ack=%d (%x:%x, %x:%x, %x:%x, %x:%x)", __func__, __LINE__,
     			data_length, tx_handle, tx_sequence, need_ack,
     			data_ptr[3], data_ptr[4], data_ptr[5], data_ptr[6],
 				data_ptr[7], data_ptr[8], data_ptr[9], data_ptr[10]);
+// #endif
 
         /*Send the packet*/
         rf_device->send(data_ptr, data_length);
@@ -335,9 +337,9 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 	uint8_t src_addr_mode = 0x0; /*0x00 = no address 0x01 = reserved 0x02 = 16-bit short address 0x03 = 64-bit extended address */
 	uint8_t min_size = 3; // FCF & SeqNr
 	bool ret = false;
-#if !defined(SHORT_ACK_FRAMES) || defined(HEAVY_TRACING)
+// #if !defined(SHORT_ACK_FRAMES) || defined(HEAVY_TRACING)
 	bool panid_compr = false;
-#endif
+// #endif
 
 	if(len < 3) {
     	tr_debug("%s (%d)", __func__, __LINE__);
@@ -353,10 +355,10 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 	panid_compr = ((fcf & MAC_FCF_INTRA_PANID_MASK) >> MAC_FCF_INTRA_PANID_SHIFT);
 #endif
 
-#ifdef HEAVY_TRACING
-	tr_debug("%s (%d): len=%d, ftype=%x, snr=%x, ack=%d, dst=%x, src=%x, intra=%d", __func__, __LINE__, len, frame_type,
+// #ifdef HEAVY_TRACING
+	tr_info("%s (%d): len=%d, ftype=%x, snr=%x, ack=%d, dst=%x, src=%x, intra=%d", __func__, __LINE__, len, frame_type,
 			rf_rx_buf[2], (*ack_requested), dst_addr_mode, src_addr_mode, panid_compr);
-#endif
+// #endif
 
 	if(frame_type == FC_ACK_FRAME) { // betzw: we support up to two different forms of ACK frames!
 #ifdef SHORT_ACK_FRAMES
@@ -542,7 +544,7 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 	}
 
 #ifdef HEAVY_TRACING
-	tr_debug("%s (%d), ret=%d, ack=%d", __func__, __LINE__, ret, (*ack_requested));
+	tr_info("%s (%d), ret=%d, ack=%d", __func__, __LINE__, ret, (*ack_requested));
 #endif
 	return ret;
 }
@@ -565,7 +567,11 @@ static inline void rf_handle_rx_end(void)
     if(!rf_buffer_len)
         return;
 
-    /* Check if packet should be accepted */
+#ifdef HEAVY_TRACING
+    	tr_debug("%s (%d)", __func__, __LINE__);
+#endif
+
+    	/* Check if packet should be accepted */
     if(!rf_check_destination(rf_buffer_len, &ack_requested)) {
 #ifdef HEAVY_TRACING
     	tr_debug("%s (%d)", __func__, __LINE__);
