@@ -4,7 +4,8 @@
 
 #define SPIRIT_GPIO_IRQ			(SPIRIT_GPIO_3)
 
-#define SPIRIT1_STATUS()		(((uint16_t)refresh_state()) & SPIRIT1_STATE_STATEBITS)
+static uint16_t last_state;
+#define SPIRIT1_STATUS()		(last_state = (((uint16_t)refresh_state()) & SPIRIT1_STATE_STATEBITS))
 
 #define BUSYWAIT_UNTIL(cond, millisecs)                                        					\
 		do {                                                                 					 		\
@@ -48,7 +49,7 @@ void SimpleSpirit1::init() {
 
 	/* configure spi */
 	_spi.format(8, 0); /* 8-bit, mode = 0, [order = SPI_MSB] only available in mbed3 */
-	_spi.frequency(5000000); // 5MHz
+	_spi.frequency(1000000); // 1MHz
 
 	/* install irq handler */
 	_irq.mode(PullUp);
@@ -163,7 +164,9 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 	}
 
 #ifndef NDEBUG
-	debug_if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX, "\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, SPIRIT1_STATUS()>>1);
+	if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX) {
+		debug("\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
+	}
 #endif
 
 	disable_spirit_irq();
@@ -178,26 +181,24 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 #endif
 
 	pkt_basic_set_payload_length(payload_len); // set desired payload len
+
+#ifdef RX_FIFO_THR_WA
+	// betzw - TODO: seems to be incompatible with TX FIFO usage (to be investigated)
 	csma_ca_state(S_ENABLE); // enable CSMA/CA
+#endif
+
+	cmd_strobe(SPIRIT1_STROBE_TX);
 
 	int i = 0;
 	int remaining = payload_len;
-	bool trigger_tx = true;
+	const uint8_t *buffer = (const uint8_t*)payload;
 	do {
 		uint8_t fifo_available = SPIRIT_MAX_FIFO_LEN - linear_fifo_read_num_elements_tx_fifo();
 		uint8_t to_send = (remaining > fifo_available) ? fifo_available : remaining;
-		const uint8_t *buffer = (const uint8_t*)payload;
 
 		/* Fill FIFO Buffer */
-		spi_write_linear_fifo(to_send, (uint8_t*)&buffer[i]);
-
-		/* Start Transmit FIFO Buffer */
-		if(trigger_tx) {
-#ifndef NDEBUG
-			debug_if(!(linear_fifo_read_num_elements_tx_fifo() == to_send), "\n\rassert failed in: %s (%d)\n\r", __func__, __LINE__);
-#endif
-			cmd_strobe(SPIRIT1_STROBE_TX);
-			trigger_tx = false;
+		if(to_send > 0) {
+			spi_write_linear_fifo(to_send, (uint8_t*)&buffer[i]);
 		}
 
 		i += to_send;
@@ -211,7 +212,9 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 	BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, STATE_TIMEOUT);
 
 #ifndef NDEBUG
-	debug_if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX, "\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, SPIRIT1_STATUS()>>1);
+	if(last_state != SPIRIT1_STATE_RX) {
+		debug("\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
+	}
 #endif
 
 	return RADIO_TX_OK;
@@ -238,8 +241,8 @@ void SimpleSpirit1::set_ready_state(void) {
 	}
 
 	BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_READY, STATE_TIMEOUT);
-	if(SPIRIT1_STATUS() != SPIRIT1_STATE_READY) {
-		error("\n\rSpirit1: failed to become ready (%x) => pls. reset!\n\r", SPIRIT1_STATUS()>>1);
+	if(last_state != SPIRIT1_STATE_READY) {
+		error("\n\rSpirit1: failed to become ready (%x) => pls. reset!\n\r", last_state>>1);
 		enable_spirit_irq();
 		return;
 	}
@@ -260,8 +263,8 @@ int SimpleSpirit1::off(void) {
 		/* Puts the SPIRIT1 in STANDBY */
 		cmd_strobe(SPIRIT1_STROBE_STANDBY);
 		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_STANDBY, STATE_TIMEOUT);
-		if(SPIRIT1_STATUS() != SPIRIT1_STATE_STANDBY) {
-			error("\n\rSpirit1: failed to enter standby (%x)\n\r", SPIRIT1_STATUS()>>1);
+		if(last_state != SPIRIT1_STATE_STANDBY) {
+			error("\n\rSpirit1: failed to enter standby (%x)\n\r", last_state>>1);
 			return 1;
 		}
 
@@ -285,8 +288,8 @@ int SimpleSpirit1::on(void) {
 		cmd_strobe(SPIRIT1_STROBE_RX);
 
 		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, STATE_TIMEOUT);
-		if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX) {
-			error("\n\rSpirit1: failed to enter rx (%x) => retry\n\r", SPIRIT1_STATUS()>>1);
+		if(last_state != SPIRIT1_STATE_RX) {
+			error("\n\rSpirit1: failed to enter rx (%x) => retry\n\r", last_state>>1);
 		}
 
 		cmd_strobe(SPIRIT1_STROBE_FRX);
@@ -304,7 +307,9 @@ int SimpleSpirit1::on(void) {
 	}
 
 #ifndef NDEBUG
-	debug_if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX, "\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, SPIRIT1_STATUS()>>1);
+	if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX) {
+		debug("\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
+	}
 #endif
 
 	return 0;
@@ -374,7 +379,9 @@ int SimpleSpirit1::channel_clear(void)
 	}
 
 #ifndef NDEBUG
-	debug_if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX, "\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, SPIRIT1_STATUS()>>1);
+	if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX) {
+		debug("\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
+	}
 #endif
 
 	disable_spirit_irq();
@@ -391,7 +398,9 @@ int SimpleSpirit1::channel_clear(void)
 	if(spirit_state==OFF) {
 		off();
 #ifndef NDEBUG
-		debug_if(SPIRIT1_STATUS() != SPIRIT1_STATE_STANDBY, "\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, SPIRIT1_STATUS()>>1);
+		if(SPIRIT1_STATUS() != SPIRIT1_STATE_STANDBY) {
+			debug("\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
+		}
 #endif
 	} else {
 		disable_spirit_irq();
@@ -400,8 +409,8 @@ int SimpleSpirit1::channel_clear(void)
 
 		cmd_strobe(SPIRIT1_STROBE_RX);
 		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, STATE_TIMEOUT);
-		if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX) {
-			error("\n\rSpirit1: (#2) failed to enter rx (%x) => retry\n\r", SPIRIT1_STATUS()>>1);
+		if(last_state != SPIRIT1_STATE_RX) {
+			error("\n\rSpirit1: (#2) failed to enter rx (%x) => retry\n\r", last_state>>1);
 		}
 
 		CLEAR_RXBUF();
@@ -411,7 +420,9 @@ int SimpleSpirit1::channel_clear(void)
 		enable_spirit_irq();
 
 #ifndef NDEBUG
-		debug_if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX, "\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, SPIRIT1_STATUS()>>1);
+		if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX) {
+			debug("\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
+		}
 #endif
 	}
 
@@ -436,7 +447,7 @@ void SimpleSpirit1::IrqHandler() {
 	irq_get_status(&x_irq_status);
 
 	/* Reception errors */
-	if((x_irq_status.IRQ_RX_FIFO_ERROR) || (x_irq_status.IRQ_RX_DATA_DISC) || (x_irq_status.IRQ_RX_TIMEOUT)) {
+	if((x_irq_status.IRQ_RX_FIFO_ERROR) || (x_irq_status.IRQ_RX_DATA_DISC)) {
 #ifndef NDEBUG
 		debug("\n\r%s (%d)", __func__, __LINE__);
 #endif
