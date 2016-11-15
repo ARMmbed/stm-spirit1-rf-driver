@@ -49,7 +49,7 @@ void SimpleSpirit1::init() {
 
 	/* configure spi */
 	_spi.format(8, 0); /* 8-bit, mode = 0, [order = SPI_MSB] only available in mbed3 */
-	_spi.frequency(1000000); // 1MHz
+	_spi.frequency(1000000); // 1MHz // betzw - NOTE: higher frequencies lead to instability of Spirit1
 
 	/* install irq handler */
 	_irq.mode(PullUp);
@@ -165,7 +165,7 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 
 #ifndef NDEBUG
 	if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX) {
-		debug("\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
+		debug("\n\rAssert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
 	}
 #endif
 
@@ -177,7 +177,7 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 	cmd_strobe(SPIRIT1_STROBE_FTX); // flush TX FIFO buffer
 
 #ifndef NDEBUG
-	debug_if(!(linear_fifo_read_num_elements_tx_fifo() == 0), "\n\rassert failed in: %s (%d)\n\r", __func__, __LINE__);
+	debug_if(!(linear_fifo_read_num_elements_tx_fifo() == 0), "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
 #endif
 
 	pkt_basic_set_payload_length(payload_len); // set desired payload len
@@ -213,7 +213,7 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 
 #ifndef NDEBUG
 	if(last_state != SPIRIT1_STATE_RX) {
-		debug("\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
+		debug("\n\rAssert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
 	}
 #endif
 
@@ -236,7 +236,7 @@ void SimpleSpirit1::set_ready_state(void) {
 		cmd_strobe(SPIRIT1_STROBE_SABORT);
 	} else if(state != SPIRIT1_STATE_READY) {
 #ifndef NDEBUG
-		debug("\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, state>>1);
+		debug("\n\rAssert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, state>>1);
 #endif
 	}
 
@@ -301,14 +301,14 @@ int SimpleSpirit1::on(void) {
 		/* Enables the mcu to get IRQ from the SPIRIT1 */
 		spirit_on = ON;
 #ifndef NDEBUG
-		debug_if(!(_nr_of_irq_disables == 1), "\n\rassert failed in: %s (%d)\n\r", __func__, __LINE__);
+		debug_if(!(_nr_of_irq_disables == 1), "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
 #endif
 		enable_spirit_irq();
 	}
 
 #ifndef NDEBUG
 	if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX) {
-		debug("\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
+		debug("\n\rAssert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
 	}
 #endif
 
@@ -380,7 +380,7 @@ int SimpleSpirit1::channel_clear(void)
 
 #ifndef NDEBUG
 	if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX) {
-		debug("\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
+		debug("\n\rAssert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
 	}
 #endif
 
@@ -399,7 +399,7 @@ int SimpleSpirit1::channel_clear(void)
 		off();
 #ifndef NDEBUG
 		if(SPIRIT1_STATUS() != SPIRIT1_STATE_STANDBY) {
-			debug("\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
+			debug("\n\rAssert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
 		}
 #endif
 	} else {
@@ -421,7 +421,7 @@ int SimpleSpirit1::channel_clear(void)
 
 #ifndef NDEBUG
 		if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX) {
-			debug("\n\rassert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
+			debug("\n\rAssert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
 		}
 #endif
 	}
@@ -490,7 +490,7 @@ void SimpleSpirit1::IrqHandler() {
 		_spirit_rx_err = false;
 		CLEAR_RXBUF();
 #ifndef NDEBUG
-		debug_if(_spirit_tx_started, "\n\rassert failed in: %s (%d)\n\r", __func__, __LINE__);
+		debug_if(_spirit_tx_started, "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
 #endif
 		start_rx_timeout();
 	}
@@ -498,7 +498,7 @@ void SimpleSpirit1::IrqHandler() {
 	/* The IRQ_TX_DATA_SENT notifies the packet received. Puts the SPIRIT1 in RX */
 	if(x_irq_status.IRQ_TX_DATA_SENT) {
 #ifndef NDEBUG
-		debug_if(!_spirit_tx_started, "\n\rassert failed in: %s (%d)\n\r", __func__, __LINE__);
+		debug_if(!_spirit_tx_started, "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
 #endif
 
 		csma_ca_state(S_DISABLE); // disable CSMA/CA
@@ -555,7 +555,7 @@ void SimpleSpirit1::IrqHandler() {
 			spirit_rx_len = pkt_basic_get_received_pkt_length();
 
 #ifndef NDEBUG
-			debug_if(!(spirit_rx_len <= MAX_PACKET_LEN), "\n\rassert failed in: %s (%d)\n\r", __func__, __LINE__);
+			debug_if(!(spirit_rx_len <= MAX_PACKET_LEN), "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
 #endif
 
 			for(; _spirit_rx_pos < spirit_rx_len;) {

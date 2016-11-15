@@ -41,7 +41,6 @@ static phy_device_channel_page_s phy_channel_pages[] = {
     {CHANNEL_PAGE_0, NULL}
 };
 
-static uint8_t need_ack = 0;
 static uint8_t tx_sequence = 0xff;
 static uint8_t mac_tx_handle = 0;
 
@@ -54,12 +53,12 @@ static uint16_t stored_pan_id;
 
 #define RF_SIG_ACK_NEEDED (1<<0)
 static Thread rf_ack_sender(osPriorityRealtime);
-static uint8_t rf_rx_sequence;
+static volatile uint8_t rf_rx_sequence;
 #ifndef SHORT_ACK_FRAMES
-static uint8_t rf_src_adr[8];
-static uint8_t rf_src_adr_len = 0;
+static volatile uint8_t rf_src_adr[8];
+static volatile uint8_t rf_src_adr_len = 0;
 #endif
-static bool rf_ack_sent = false;
+static volatile bool rf_ack_sent = false;
 
 /* MAC frame helper macros */
 #define MAC_FCF_FRAME_TYPE_MASK         0x0007
@@ -126,11 +125,15 @@ static int8_t rf_trigger_send(uint8_t *data_ptr, uint16_t data_length, uint8_t t
     } else {
     	uint16_t fcf = rf_read_16_bit(data_ptr);
 
+#ifdef HEAVY_TRACING
+    	uint16_t need_ack;
+
     	/*Check if transmitted data needs to be acked*/
     	if((fcf & MAC_FCF_ACK_REQ_BIT_MASK) >> MAC_FCF_ACK_REQ_BIT_SHIFT)
     		need_ack = 1;
     	else
     		need_ack = 0;
+#endif
 
     	/*Store the sequence number for ACK handling*/
     	tx_sequence = *(data_ptr + 2);
@@ -138,14 +141,14 @@ static int8_t rf_trigger_send(uint8_t *data_ptr, uint16_t data_length, uint8_t t
     	/*Store TX handle*/
     	mac_tx_handle = tx_handle;
 
-// #ifdef HEAVY_TRACING
+#ifdef HEAVY_TRACING
     	tr_info("%s (%d), len=%d, tx_handle=%x, tx_seq=%x, need_ack=%d (%x:%x, %x:%x, %x:%x, %x:%x)", __func__, __LINE__,
     			data_length, tx_handle, tx_sequence, need_ack,
-    			data_ptr[3], data_ptr[4], data_ptr[5], data_ptr[6],
+				data_ptr[3], data_ptr[4], data_ptr[5], data_ptr[6],
 				data_ptr[7], data_ptr[8], data_ptr[9], data_ptr[10]);
-// #endif
+#endif
 
-        /*Send the packet*/
+    	    	    	/*Send the packet*/
         rf_device->send(data_ptr, data_length);
 
     	/* Release Lock */
@@ -211,8 +214,8 @@ static int8_t rf_extension(phy_extension_type_e extension_type, uint8_t *data_pt
 
         /*Return frame pending status*/
         case PHY_EXTENSION_READ_LAST_ACK_PENDING_STATUS:
-        	tr_debug("%s (%d), need_ack=%x", __func__, __LINE__, (unsigned int)need_ack);
-            *data_ptr = need_ack;
+        	tr_debug("%s (%d)", __func__, __LINE__);
+            *data_ptr = 0;
             break;
 
         /*Set channel, used for setting channel for energy scan*/
@@ -274,7 +277,6 @@ static inline void rf_set_pan_id(uint8_t *ptr) {
 
 static int8_t rf_address_write(phy_address_type_e address_type, uint8_t *address_ptr)
 {
-
     switch (address_type)
     {
         /*Set 48-bit address*/
@@ -305,16 +307,17 @@ static void rf_handle_ack(uint8_t seq_number)
     /*Received ACK sequence must be equal with transmitted packet sequence*/
     if(tx_sequence == seq_number)
     {
-    	/* Reset 'need_ack' */
-    	need_ack = 0;
+#ifdef HEAVY_TRACING
+    	tr_info("%s (%d)", __func__, __LINE__);
+#endif
 
-    	/*Call PHY TX Done API*/
+    			/*Call PHY TX Done API*/
         if(device_driver.phy_tx_done_cb){
             device_driver.phy_tx_done_cb(rf_radio_driver_id, mac_tx_handle, PHY_LINK_TX_DONE, 0, 0);
         }
     } else {
 #ifdef HEAVY_TRACING
-		tr_debug("%s (%d)", __func__, __LINE__);
+		tr_info("%s (%d)", __func__, __LINE__);
 #endif
     }
 }
@@ -337,9 +340,9 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 	uint8_t src_addr_mode = 0x0; /*0x00 = no address 0x01 = reserved 0x02 = 16-bit short address 0x03 = 64-bit extended address */
 	uint8_t min_size = 3; // FCF & SeqNr
 	bool ret = false;
-// #if !defined(SHORT_ACK_FRAMES) || defined(HEAVY_TRACING)
+#if !defined(SHORT_ACK_FRAMES) || defined(HEAVY_TRACING)
 	bool panid_compr = false;
-// #endif
+#endif
 
 	if(len < 3) {
     	tr_debug("%s (%d)", __func__, __LINE__);
@@ -355,10 +358,10 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 	panid_compr = ((fcf & MAC_FCF_INTRA_PANID_MASK) >> MAC_FCF_INTRA_PANID_SHIFT);
 #endif
 
-// #ifdef HEAVY_TRACING
+#ifdef HEAVY_TRACING
 	tr_info("%s (%d): len=%d, ftype=%x, snr=%x, ack=%d, dst=%x, src=%x, intra=%d", __func__, __LINE__, len, frame_type,
 			rf_rx_buf[2], (*ack_requested), dst_addr_mode, src_addr_mode, panid_compr);
-// #endif
+#endif
 
 	if(frame_type == FC_ACK_FRAME) { // betzw: we support up to two different forms of ACK frames!
 #ifdef SHORT_ACK_FRAMES
@@ -392,7 +395,7 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
 #endif // !SHORT_ACK_FRAMES
 
 #ifdef HEAVY_TRACING
-		tr_debug("%s (%d): ret=%d", __func__, __LINE__, ret);
+		tr_info("%s (%d): ret=%d", __func__, __LINE__, ret);
 #endif
 		(*ack_requested) = 0;  // Never acknowledge ACK frames
 		return ret;
@@ -696,7 +699,7 @@ static void rf_ack_loop(void) {
 		/* Wait for device not receiving */
 		while(rf_device->is_receiving()) {
 #ifdef HEAVY_TRACING
-	    	tr_debug("%s (%d)", __func__, __LINE__);
+	    	tr_info("%s (%d)", __func__, __LINE__);
 #endif
 			wait_us(10);
 		}
@@ -792,10 +795,21 @@ static void rf_ack_loop(void) {
 #endif // !SHORT_ACK_FRAMES
 
 static void rf_init(void) {
+#ifndef NDEBUG
+	osStatus ret;
+#endif
+
 	rf_device = &SimpleSpirit1::CreateInstance(D11, D12, D13, D9, D10, D2);
 	rf_device->attach_irq_callback(rf_callback_func);
 
+#ifndef NDEBUG
+	ret =
+#endif
 	rf_ack_sender.start(rf_ack_loop);
+
+#ifndef NDEBUG
+	debug_if(!(ret == osOK), "\n\rassert failed in: %s (%d)\n\r", __func__, __LINE__);
+#endif
 }
 
 extern "C" int8_t rf_device_register(void)
