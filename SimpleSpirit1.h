@@ -40,6 +40,7 @@ class UnlockedSPI : public SPI {
 public:
     UnlockedSPI(PinName mosi, PinName miso, PinName sclk) :
         SPI(mosi, miso, sclk) { }
+    virtual ~UnlockedSPI() {}
     virtual void lock() { }
     virtual void unlock() { }
 };
@@ -184,7 +185,7 @@ class SimpleSpirit1 {
     	return SpiritRadioInit(init_struct);
     }
 
-    void radio_persisten_rx(SpiritFunctionalState xNewState) {
+    void radio_persistent_rx(SpiritFunctionalState xNewState) {
     	SpiritRadioPersistenRx(xNewState);
     }
 

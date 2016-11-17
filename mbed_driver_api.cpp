@@ -123,9 +123,8 @@ static int8_t rf_trigger_send(uint8_t *data_ptr, uint16_t data_length, uint8_t t
     	/*Return busy*/
         return -1;
     } else {
-    	uint16_t fcf = rf_read_16_bit(data_ptr);
-
 #ifdef HEAVY_TRACING
+    	uint16_t fcf = rf_read_16_bit(data_ptr);
     	uint16_t need_ack;
 
     	/*Check if transmitted data needs to be acked*/

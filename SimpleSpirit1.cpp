@@ -5,7 +5,9 @@
 #define SPIRIT_GPIO_IRQ			(SPIRIT_GPIO_3)
 
 static uint16_t last_state;
-#define SPIRIT1_STATUS()		(last_state = (((uint16_t)refresh_state()) & SPIRIT1_STATE_STATEBITS))
+#define SPIRIT1_STATUS()		((last_state = (uint16_t)refresh_state()) & SPIRIT1_STATE_STATEBITS)
+
+#define XO_ON                   (0x1)
 
 #define BUSYWAIT_UNTIL(cond, millisecs)                                        					\
 		do {                                                                 					 		\
@@ -13,12 +15,15 @@ static uint16_t last_state;
 			while (!(cond) && ((us_ticker_read() - start) < ((uint32_t)millisecs)*1000U));	\
 		} while(0)
 
-extern volatile SpiritStatus 	g_xStatus;
-#define st_lib_g_x_status	 	(g_xStatus)
-
 #define st_lib_spirit_irqs		SpiritIrqs
 
 #define STATE_TIMEOUT           (1000)
+
+// betzw: switching force & back from standby seems to be unstable
+// #define USE_STANDBY_STATE
+
+// betzw: enable beyond macro if you want debug messages also from IRQ handler
+#define DEBUG_IRQ
 
 /*** Class Implementation ***/
 /** Static Class Variables **/
@@ -112,16 +117,17 @@ void SimpleSpirit1::init() {
 	irq_set_status(RX_FIFO_ALMOST_FULL, S_ENABLE);
 	irq_set_status(VALID_SYNC, S_ENABLE);
 	irq_set_status(MAX_BO_CCA_REACH, S_ENABLE);
+	irq_set_status(READY, S_ENABLE); // betzw: gets never trigger ... WHY??? (to be investigated)
 
 	/* Configure Spirit1 */
-	radio_persisten_rx(S_ENABLE);
+	radio_persistent_rx(S_ENABLE);
 	qi_set_sqi_threshold(SQI_TH_0);
 	qi_sqi_check(S_ENABLE);
 	qi_set_rssi_threshold_dbm(CCA_THRESHOLD);
 	timer_set_rx_timeout_stop_condition(SQI_ABOVE_THRESHOLD);
 	timer_set_infinite_rx_timeout();
 	radio_afc_freeze_on_sync(S_ENABLE);
-	calibration_rco(S_ENABLE);
+	calibration_rco(S_ENABLE);      // betzw: test
 
 	spirit_on = OFF;
 	CLEAR_TXBUF();
@@ -140,7 +146,7 @@ void SimpleSpirit1::init() {
 
 	/* Setup CSMA/CA */
 	CsmaInit x_csma_init = {
-			S_DISABLE,        // no persistent mode
+			S_ENABLE,         // enable persistent mode // betzw: test
 			TBIT_TIME_64,     // Tcca time
 			TCCA_TIME_3,      // Lcca length
 			3,                // max nr of backoffs (<8)
@@ -153,8 +159,10 @@ void SimpleSpirit1::init() {
 	linear_fifo_set_almost_full_thr_rx(SPIRIT_MAX_FIFO_LEN-(MAX_PACKET_LEN+1));
 #endif
 
+#ifdef USE_STANDBY_STATE
 	/* Puts the SPIRIT1 in STANDBY mode (125us -> rx/tx) */
 	cmd_strobe(SPIRIT1_STROBE_STANDBY);
+#endif // USE_STANDBY_STATE
 }
 
 int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
@@ -163,13 +171,14 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 		return RADIO_TX_ERR;
 	}
 
+	disable_spirit_irq();
+
+	BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, STATE_TIMEOUT);
 #ifndef NDEBUG
-	if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX) {
+	if((last_state & SPIRIT1_STATE_STATEBITS) != SPIRIT1_STATE_RX) {
 		debug("\n\rAssert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
 	}
 #endif
-
-	disable_spirit_irq();
 
 	/* Reset State to Ready */
 	set_ready_state();
@@ -187,11 +196,10 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 	csma_ca_state(S_ENABLE); // enable CSMA/CA
 #endif
 
-	cmd_strobe(SPIRIT1_STROBE_TX);
-
 	int i = 0;
 	int remaining = payload_len;
 	const uint8_t *buffer = (const uint8_t*)payload;
+	bool tx_triggered = false;
 	do {
 		uint8_t fifo_available = SPIRIT_MAX_FIFO_LEN - linear_fifo_read_num_elements_tx_fifo();
 		uint8_t to_send = (remaining > fifo_available) ? fifo_available : remaining;
@@ -199,6 +207,11 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 		/* Fill FIFO Buffer */
 		if(to_send > 0) {
 			spi_write_linear_fifo(to_send, (uint8_t*)&buffer[i]);
+		}
+
+		if(!tx_triggered) {
+			cmd_strobe(SPIRIT1_STROBE_TX);
+			tx_triggered = true;
 		}
 
 		i += to_send;
@@ -209,13 +222,13 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 
 	enable_spirit_irq();
 
-	BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, STATE_TIMEOUT);
-
+	BUSYWAIT_UNTIL(!_spirit_tx_started, STATE_TIMEOUT);
 #ifndef NDEBUG
-	if(last_state != SPIRIT1_STATE_RX) {
-		debug("\n\rAssert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
-	}
+	// debug("\n\r%s (%d): state=%x, _spirit_tx_started=%d\n\r", __func__, __LINE__, SPIRIT1_STATUS()>>1, _spirit_tx_started);
 #endif
+
+	csma_ca_state(S_DISABLE); // disable CSMA/CA
+	cmd_strobe(SPIRIT1_STROBE_RX); // Return to RX state
 
 	return RADIO_TX_OK;
 }
@@ -240,9 +253,9 @@ void SimpleSpirit1::set_ready_state(void) {
 #endif
 	}
 
-	BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_READY, STATE_TIMEOUT);
-	if(last_state != SPIRIT1_STATE_READY) {
-		error("\n\rSpirit1: failed to become ready (%x) => pls. reset!\n\r", last_state>>1);
+	BUSYWAIT_UNTIL((SPIRIT1_STATUS() == SPIRIT1_STATE_READY) && ((last_state & XO_ON) == XO_ON), STATE_TIMEOUT);
+	if(last_state != (SPIRIT1_STATE_READY | XO_ON)) {
+		error("\n\rSpirit1: failed to become ready (%x) => pls. reset!\n\r", last_state);
 		enable_spirit_irq();
 		return;
 	}
@@ -260,13 +273,15 @@ int SimpleSpirit1::off(void) {
 		/* first stop rx/tx */
 		set_ready_state();
 
+#ifdef USE_STANDBY_STATE
 		/* Puts the SPIRIT1 in STANDBY */
 		cmd_strobe(SPIRIT1_STROBE_STANDBY);
 		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_STANDBY, STATE_TIMEOUT);
-		if(last_state != SPIRIT1_STATE_STANDBY) {
+		if((last_state & SPIRIT1_STATE_STATEBITS) != SPIRIT1_STATE_STANDBY) {
 			error("\n\rSpirit1: failed to enter standby (%x)\n\r", last_state>>1);
 			return 1;
 		}
+#endif // USE_STANDBY_STATE
 
 		spirit_on = OFF;
 		_nr_of_irq_disables = 1;
@@ -288,7 +303,7 @@ int SimpleSpirit1::on(void) {
 		cmd_strobe(SPIRIT1_STROBE_RX);
 
 		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, STATE_TIMEOUT);
-		if(last_state != SPIRIT1_STATE_RX) {
+		if((last_state & SPIRIT1_STATE_STATEBITS) != SPIRIT1_STATE_RX) {
 			error("\n\rSpirit1: failed to enter rx (%x) => retry\n\r", last_state>>1);
 		}
 
@@ -398,7 +413,11 @@ int SimpleSpirit1::channel_clear(void)
 	if(spirit_state==OFF) {
 		off();
 #ifndef NDEBUG
+#ifdef USE_STANDBY_STATE
 		if(SPIRIT1_STATUS() != SPIRIT1_STATE_STANDBY) {
+#else
+		if(SPIRIT1_STATUS() != SPIRIT1_STATE_READY) {
+#endif
 			debug("\n\rAssert failed in: %s (%d): state=%x\n\r", __func__, __LINE__, last_state>>1);
 		}
 #endif
@@ -409,7 +428,7 @@ int SimpleSpirit1::channel_clear(void)
 
 		cmd_strobe(SPIRIT1_STROBE_RX);
 		BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, STATE_TIMEOUT);
-		if(last_state != SPIRIT1_STATE_RX) {
+		if((last_state & SPIRIT1_STATE_STATEBITS) != SPIRIT1_STATE_RX) {
 			error("\n\rSpirit1: (#2) failed to enter rx (%x) => retry\n\r", last_state>>1);
 		}
 
@@ -446,10 +465,20 @@ void SimpleSpirit1::IrqHandler() {
 	/* get interrupt source from radio */
 	irq_get_status(&x_irq_status);
 
+	/* Have become ready */
+	if(x_irq_status.IRQ_READY) { // betzw: gets never trigger ... WHY??? (to be investigated)
+#ifdef DEBUG_IRQ
+		uint32_t *tmp = (uint32_t*)&x_irq_status;
+		debug("\n\r%s (%d): irq=%x", __func__, __LINE__, *tmp);
+#endif
+		cmd_strobe(SPIRIT1_STROBE_RX);
+	}
+
 	/* Reception errors */
 	if((x_irq_status.IRQ_RX_FIFO_ERROR) || (x_irq_status.IRQ_RX_DATA_DISC)) {
-#ifndef NDEBUG
-		debug("\n\r%s (%d)", __func__, __LINE__);
+#ifdef DEBUG_IRQ
+		uint32_t *tmp = (uint32_t*)&x_irq_status;
+		debug("\n\r%s (%d): irq=%x", __func__, __LINE__, *tmp);
 #endif
 		_spirit_rx_err = true;
 		_is_receiving = false;
@@ -468,12 +497,13 @@ void SimpleSpirit1::IrqHandler() {
 
 	/* Transmission error */
 	if(x_irq_status.IRQ_TX_FIFO_ERROR) {
-#ifndef NDEBUG
-		debug("\n\r%s (%d)", __func__, __LINE__);
+#ifdef DEBUG_IRQ
+		uint32_t *tmp = (uint32_t*)&x_irq_status;
+		debug("\n\r%s (%d): irq=%x", __func__, __LINE__, *tmp);
 #endif
 		csma_ca_state(S_DISABLE); // disable CSMA/CA
 		cmd_strobe(SPIRIT1_STROBE_FTX);
-		cmd_strobe(SPIRIT1_STROBE_RX);
+		// cmd_strobe(SPIRIT1_STROBE_SABORT); // betzw: we do not know in which state we are (most likely it's a not stable state)!
 		if(_spirit_tx_started) {
 			_spirit_tx_started = false;
 			CLEAR_TXBUF();
@@ -484,30 +514,17 @@ void SimpleSpirit1::IrqHandler() {
 		}
 	}
 
-	/* The IRQ_VALID_SYNC is used to notify a new packet is coming */
-	if(x_irq_status.IRQ_VALID_SYNC) {
-		_is_receiving = true;
-		_spirit_rx_err = false;
-		CLEAR_RXBUF();
-#ifndef NDEBUG
-		debug_if(_spirit_tx_started, "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
-#endif
-		start_rx_timeout();
-	}
-
 	/* The IRQ_TX_DATA_SENT notifies the packet received. Puts the SPIRIT1 in RX */
 	if(x_irq_status.IRQ_TX_DATA_SENT) {
-#ifndef NDEBUG
+#ifdef DEBUG_IRQ
 		debug_if(!_spirit_tx_started, "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
 #endif
 
-		csma_ca_state(S_DISABLE); // disable CSMA/CA
-		cmd_strobe(SPIRIT1_STROBE_FRX);
-		cmd_strobe(SPIRIT1_STROBE_RX);
-		CLEAR_TXBUF();
-		CLEAR_RXBUF();
 		_spirit_rx_err = false;
 		_spirit_tx_started = false;
+		// cmd_strobe(SPIRIT1_STROBE_RX); // data-sheet says that  we will return to READY state automatically (furthermore we are in a not stable state)!
+		CLEAR_TXBUF();
+		CLEAR_RXBUF();
 
 		/* call user callback */
 		if(_current_irq_callback) {
@@ -554,7 +571,7 @@ void SimpleSpirit1::IrqHandler() {
 		} else {
 			spirit_rx_len = pkt_basic_get_received_pkt_length();
 
-#ifndef NDEBUG
+#ifdef DEBUG_IRQ
 			debug_if(!(spirit_rx_len <= MAX_PACKET_LEN), "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
 #endif
 
@@ -580,21 +597,32 @@ void SimpleSpirit1::IrqHandler() {
 
 	/* Max number of back-off during CCA */
 	if(x_irq_status.IRQ_MAX_BO_CCA_REACH) {
-#ifndef NDEBUG
-		debug("\n\r%s (%d)", __func__, __LINE__);
+#ifdef DEBUG_IRQ
+		uint32_t *tmp = (uint32_t*)&x_irq_status;
+		debug("\n\r%s (%d): irq=%x", __func__, __LINE__, *tmp);
 #endif
-		csma_ca_state(S_DISABLE); // disable CSMA/CA
-		cmd_strobe(SPIRIT1_STROBE_FRX);
-		cmd_strobe(SPIRIT1_STROBE_RX);
-		CLEAR_TXBUF();
-		CLEAR_RXBUF();
+
 		_spirit_rx_err = false;
 		_spirit_tx_started = false;
+		csma_ca_state(S_DISABLE); // disable CSMA/CA
+		// cmd_strobe(SPIRIT1_STROBE_RX); // data-sheet says that  we will return to READY state automatically!
+		CLEAR_TXBUF();
+		CLEAR_RXBUF();
 
 		/* call user callback */
 		if(_current_irq_callback) {
 			_current_irq_callback(TX_ERR);
 		}
+	}
 
+	/* The IRQ_VALID_SYNC is used to notify a new packet is coming */
+	if(x_irq_status.IRQ_VALID_SYNC) {
+		_is_receiving = true;
+		_spirit_rx_err = false;
+		CLEAR_RXBUF();
+#ifdef DEBUG_IRQ
+		debug_if(_spirit_tx_started, "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
+#endif
+		start_rx_timeout();
 	}
 }
