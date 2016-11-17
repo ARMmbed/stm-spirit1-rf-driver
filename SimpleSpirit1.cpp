@@ -116,8 +116,6 @@ void SimpleSpirit1::init() {
 	irq_set_status(RX_FIFO_ERROR, S_ENABLE);
 	irq_set_status(RX_FIFO_ALMOST_FULL, S_ENABLE);
 	irq_set_status(VALID_SYNC, S_ENABLE);
-	irq_set_status(MAX_BO_CCA_REACH, S_ENABLE);
-	irq_set_status(READY, S_ENABLE); // betzw: gets never trigger ... WHY??? (to be investigated)
 
 	/* Configure Spirit1 */
 	radio_persistent_rx(S_ENABLE);
@@ -127,7 +125,7 @@ void SimpleSpirit1::init() {
 	timer_set_rx_timeout_stop_condition(SQI_ABOVE_THRESHOLD);
 	timer_set_infinite_rx_timeout();
 	radio_afc_freeze_on_sync(S_ENABLE);
-	calibration_rco(S_ENABLE);      // betzw: test
+	calibration_rco(S_ENABLE);
 
 	spirit_on = OFF;
 	CLEAR_TXBUF();
@@ -146,7 +144,7 @@ void SimpleSpirit1::init() {
 
 	/* Setup CSMA/CA */
 	CsmaInit x_csma_init = {
-			S_ENABLE,         // enable persistent mode // betzw: test
+			S_ENABLE,         // enable persistent mode
 			TBIT_TIME_64,     // Tcca time
 			TCCA_TIME_3,      // Lcca length
 			3,                // max nr of backoffs (<8)
@@ -465,15 +463,6 @@ void SimpleSpirit1::IrqHandler() {
 	/* get interrupt source from radio */
 	irq_get_status(&x_irq_status);
 
-	/* Have become ready */
-	if(x_irq_status.IRQ_READY) { // betzw: gets never trigger ... WHY??? (to be investigated)
-#ifdef DEBUG_IRQ
-		uint32_t *tmp = (uint32_t*)&x_irq_status;
-		debug("\n\r%s (%d): irq=%x", __func__, __LINE__, *tmp);
-#endif
-		cmd_strobe(SPIRIT1_STROBE_RX);
-	}
-
 	/* Reception errors */
 	if((x_irq_status.IRQ_RX_FIFO_ERROR) || (x_irq_status.IRQ_RX_DATA_DISC)) {
 #ifdef DEBUG_IRQ
@@ -592,26 +581,6 @@ void SimpleSpirit1::IrqHandler() {
 			if(_current_irq_callback) {
 				_current_irq_callback(RX_DONE);
 			}
-		}
-	}
-
-	/* Max number of back-off during CCA */
-	if(x_irq_status.IRQ_MAX_BO_CCA_REACH) {
-#ifdef DEBUG_IRQ
-		uint32_t *tmp = (uint32_t*)&x_irq_status;
-		debug("\n\r%s (%d): irq=%x", __func__, __LINE__, *tmp);
-#endif
-
-		_spirit_rx_err = false;
-		_spirit_tx_started = false;
-		csma_ca_state(S_DISABLE); // disable CSMA/CA
-		// cmd_strobe(SPIRIT1_STROBE_RX); // data-sheet says that  we will return to READY state automatically!
-		CLEAR_TXBUF();
-		CLEAR_RXBUF();
-
-		/* call user callback */
-		if(_current_irq_callback) {
-			_current_irq_callback(TX_ERR);
 		}
 	}
 
