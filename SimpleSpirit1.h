@@ -74,12 +74,7 @@ class SimpleSpirit1 {
 
     void rx_timeout_handler(void) {
     	set_ready_state();
-		cmd_strobe(SPIRIT1_STROBE_FRX);
 	    cmd_strobe(SPIRIT1_STROBE_RX);
-	    CLEAR_TXBUF();
-	    CLEAR_RXBUF();
-	    _spirit_rx_err = false;
-	    _spirit_tx_started = false;
 #ifndef NDEBUG
 	    debug("\n\r%s (%d)\n\r", __func__, __LINE__);
 #endif
@@ -110,7 +105,7 @@ class SimpleSpirit1 {
     /** Status Variables from Cube Implementation **/
     unsigned int spirit_on;
     uint8_t last_rssi; //MGR
-    uint8_t last_lqi;  //MGR
+    uint8_t last_sqi;  //MGR
 
     /** Low Level Instance Variables **/
     unsigned int _nr_of_irq_disables;
@@ -259,8 +254,8 @@ class SimpleSpirit1 {
     	return SpiritQiGetRssi();
     }
 
-    uint8_t qi_get_lqi() {
-    	return SpiritQiGetLqi();
+    uint8_t qi_get_sqi() {
+    	return SpiritQiGetSqi();
     }
 
     /** Timer Instance Methods **/
@@ -436,20 +431,29 @@ public:
     	return _is_receiving;
     }
 
-    /** Get latest value of RSSI **/
+    /** Get latest value of RSSI (in dBm) **/
     float get_last_rssi_dbm(void) {
+    	get_last_rssi_raw();
+		return (-120.0+((float)(last_rssi-20))/2);
+    }
+
+    /** Get latest value of RSSI (as Spirit1 raw value) **/
+    uint8_t get_last_rssi_raw(void) {
     	if(last_rssi == 0) {
     		last_rssi = qi_get_rssi();
     	}
-    	return (-120.0+((float)(last_rssi-20))/2);
+    	return last_rssi;
     }
 
-    /** Get latest value of LQI **/
-    uint8_t get_last_lqi(void) {
-    	if(last_lqi == 0) {
-    		last_lqi = qi_get_lqi();
+    /** Get latest value of LQI (scaled to 8-bit) **/
+    uint8_t get_last_sqi(void) {
+    	const uint8_t max_sqi = 8 * ((SYNC_LENGTH>>1)+1);
+    	if(last_sqi == 0) {
+    		last_sqi = qi_get_sqi();
     	}
-    	return last_lqi;
+    	if(last_sqi > max_sqi) last_sqi = max_sqi;
+
+    	return (last_sqi * 255 / max_sqi);
     }
 
     /** Reset Board **/

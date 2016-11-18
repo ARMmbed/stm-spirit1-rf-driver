@@ -226,14 +226,14 @@ static int8_t rf_extension(phy_extension_type_e extension_type, uint8_t *data_pt
         case PHY_EXTENSION_READ_CHANNEL_ENERGY:
             // TODO: *data_ptr = rf_get_channel_energy();
         	tr_debug("%s (%d)", __func__, __LINE__);
-           	*data_ptr = rf_device->get_last_rssi_dbm();
+           	*data_ptr = (int8_t)rf_device->get_last_rssi_dbm();
             break;
 
         /*Read status of the link*/
         case PHY_EXTENSION_READ_LINK_STATUS:
             // TODO: *data_ptr = rf_get_link_status();
         	tr_debug("%s (%d)", __func__, __LINE__);
-        	*data_ptr = rf_device->get_last_lqi()*17;
+        	*data_ptr = rf_device->get_last_sqi(); // use SQI as link quality
             break;
 
         default:
@@ -559,7 +559,7 @@ static inline void rf_send_ack() {
 /* Note: we are in IRQ context */
 static inline void rf_handle_rx_end(void)
 {
-    uint8_t rf_lqi;
+    uint8_t rf_sqi;
     int8_t rf_rssi;
     uint16_t rf_buffer_len;
     uint8_t ack_requested = 0;
@@ -602,12 +602,10 @@ static inline void rf_handle_rx_end(void)
 
     /* Get link information */
     rf_rssi = (int8_t)rf_device->get_last_rssi_dbm();
-    rf_lqi = (uint8_t)rf_device->get_last_lqi();
-    rf_lqi *= 17; // scale to 8-bit value
+    rf_sqi = (uint8_t)rf_device->get_last_sqi(); // use SQI as link quality
 
     /* Note: Checksum of the packet must be checked and removed before entering here */
     /* TODO - betzw: what to do? */
-    // rf_buffer_len -= 2;
 
 #ifdef HEAVY_TRACING
       	tr_debug("%s (%d)", __func__, __LINE__);
@@ -615,7 +613,7 @@ static inline void rf_handle_rx_end(void)
 
         	/* Send received data and link information to the network stack */
     if( device_driver.phy_rx_cb ){
-        device_driver.phy_rx_cb(rf_rx_buf, rf_buffer_len, rf_lqi, rf_rssi, rf_radio_driver_id);
+        device_driver.phy_rx_cb(rf_rx_buf, rf_buffer_len, rf_sqi, rf_rssi, rf_radio_driver_id);
     }
 }
 
@@ -878,14 +876,13 @@ extern "C" void rf_read_mac_address(uint8_t *ptr)
  */
 extern "C" int8_t rf_read_random(void)
 {
-	float tmp;
+	uint8_t ret;
 
 	rf_device->channel_clear();
-	tmp = rf_device->get_last_rssi_dbm();
-	tmp *= -10;
+	ret = rf_device->get_last_rssi_raw();
 
-	tr_debug("%s (%d): ret=%d", __func__, __LINE__, (uint8_t)tmp);
-    return (uint8_t)tmp;
+	tr_debug("%s (%d): ret=%d", __func__, __LINE__, ret);
+    return ret;
 }
 
 /*
