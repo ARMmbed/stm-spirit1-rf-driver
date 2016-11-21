@@ -19,11 +19,8 @@ static uint16_t last_state;
 
 #define STATE_TIMEOUT           (1000)
 
-// betzw: switching force & back from standby seems to be unstable
-// #define USE_STANDBY_STATE
-
-// betzw: enable beyond macro if you want debug messages also from IRQ handler
-#define DEBUG_IRQ
+// betzw: switching force & back from standby is on some devices quite unstable
+#define USE_STANDBY_STATE
 
 /*** Class Implementation ***/
 /** Static Class Variables **/
@@ -474,7 +471,6 @@ void SimpleSpirit1::IrqHandler() {
 #endif
 		csma_ca_state(S_DISABLE); // disable CSMA/CA
 		cmd_strobe(SPIRIT1_STROBE_FTX);
-		// cmd_strobe(SPIRIT1_STROBE_SABORT); // betzw: we do not know in which state we are (most likely it's a not stable state)!
 		if(_spirit_tx_started) {
 			_spirit_tx_started = false;
 			CLEAR_TXBUF();
@@ -493,7 +489,6 @@ void SimpleSpirit1::IrqHandler() {
 
 		_spirit_rx_err = false;
 		_spirit_tx_started = false;
-		// cmd_strobe(SPIRIT1_STROBE_RX); // data-sheet says that  we will return to READY state automatically (furthermore we are in a not stable state)!
 		CLEAR_TXBUF();
 		CLEAR_RXBUF();
 

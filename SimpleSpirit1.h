@@ -16,6 +16,10 @@
 #include "spirit1-const.h"
 
 
+// betzw: enable beyond macro if you want debug messages also from IRQ handler
+#define DEBUG_IRQ
+
+
 /*** Macros from Cube Implementation ***/
 #define CLEAR_TXBUF()			(spirit_tx_len = 0)
 #define IS_RXBUF_EMPTY()        (spirit_rx_len == 0)
@@ -75,7 +79,7 @@ class SimpleSpirit1 {
     void rx_timeout_handler(void) {
     	set_ready_state();
 	    cmd_strobe(SPIRIT1_STROBE_RX);
-#ifndef NDEBUG
+#ifdef DEBUG_IRQ
 	    debug("\n\r%s (%d)\n\r", __func__, __LINE__);
 #endif
     }
