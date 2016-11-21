@@ -1,6 +1,7 @@
 #include "SimpleSpirit1.h"
 #include "nanostack/platform/arm_hal_phy.h"
 #include "platform/arm_hal_interrupt.h"
+#include "driverRFPhy.h"
 
 #include "mbed_trace.h"
 #define TRACE_GROUP  "SPIRIT"
@@ -10,16 +11,6 @@
 
 /* Define beyond macro if you want to use acknowledgment frames with only 3 bytes */
 #define SHORT_ACK_FRAMES
-
-/*Atmel RF Part Type*/
-// betzw - TODO
-typedef enum
-{
-    ATMEL_UNKNOW_DEV = 0,
-    ATMEL_AT86RF212,
-    ATMEL_AT86RF231,
-    ATMEL_AT86RF233
-}rf_trx_part_e;
 
 static uint8_t mac_address[8] = {
 		MBED_CONF_SPIRIT1_MAC_ADDRESS_0,
