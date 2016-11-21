@@ -138,7 +138,7 @@ static int8_t rf_trigger_send(uint8_t *data_ptr, uint16_t data_length, uint8_t t
 				data_ptr[7], data_ptr[8], data_ptr[9], data_ptr[10]);
 #endif
 
-    	    	    	/*Send the packet*/
+    	/*Send the packet*/
         rf_device->send(data_ptr, data_length);
 
     	/* Release Lock */

@@ -222,6 +222,8 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 	debug("\n\r%s (%d): state=%x, _spirit_tx_started=%d\n\r", __func__, __LINE__, SPIRIT1_STATUS()>>1, _spirit_tx_started);
 #endif
 
+	_spirit_tx_started = false; // in case of state timeout
+
 	csma_ca_state(S_DISABLE); // disable CSMA/CA
 	cmd_strobe(SPIRIT1_STROBE_RX); // Return to RX state
 
