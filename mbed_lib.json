@@ -1,0 +1,14 @@
+{
+    "name": "spirit1",
+    "config": {
+    	"mac-address-0": "0x0",
+    	"mac-address-1": "0x0",
+    	"mac-address-2": "0x0",
+    	"mac-address-3": "0x0",
+    	"mac-address-4": "0x0",
+    	"mac-address-5": "0x0",
+    	"mac-address-6": "0x0",
+    	"mac-address-7": "0x0"
+    },
+    "macros": ["USE_STM32F4XX_NUCLEO", "X_NUCLEO_IDS01A4", "SPIRIT_USE_FULL_ASSERT"]
+}
