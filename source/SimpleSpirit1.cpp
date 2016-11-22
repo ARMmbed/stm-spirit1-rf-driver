@@ -17,7 +17,7 @@ static uint16_t last_state;
 
 #define st_lib_spirit_irqs		SpiritIrqs
 
-#define STATE_TIMEOUT           (1000)
+#define STATE_TIMEOUT           (100)
 
 // betzw: switching force & back from standby is on some devices quite unstable
 #define USE_STANDBY_STATE

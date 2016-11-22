@@ -58,7 +58,7 @@ class SimpleSpirit1 {
 	static SimpleSpirit1 *_singleton;
 
     /** Communication Interface Instance Variables **/
-	UnlockedSPI _spi; // betzw - NOTE: Arduino pins are valid only for NUCLEO-F401RE
+	UnlockedSPI _spi; // betzw - NOTE: Morpho/Zio pins are valid only for NUCLEO-F401RE
               	  	  // mosi: PA_7 (D11)
 					  // miso: PA_6 (D12)
               	  	  // sclk: PB_3 (D3) or
@@ -85,7 +85,7 @@ class SimpleSpirit1 {
     }
 
     void start_rx_timeout(void) {
-    	_rx_receiving_timeout.attach_us(Callback<void()>(this, &SimpleSpirit1::rx_timeout_handler), 500 * 1000); // 500ms
+    	_rx_receiving_timeout.attach_us(Callback<void()>(this, &SimpleSpirit1::rx_timeout_handler), 100 * 1000); // 100ms
     }
 
     void stop_rx_timeout(void) {
