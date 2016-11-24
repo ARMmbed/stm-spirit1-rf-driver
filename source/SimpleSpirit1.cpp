@@ -563,12 +563,20 @@ void SimpleSpirit1::IrqHandler() {
 
 	/* The IRQ_VALID_SYNC is used to notify a new packet is coming */
 	if(x_irq_status.IRQ_VALID_SYNC) {
-		_is_receiving = true;
-		_spirit_rx_err = false;
-		CLEAR_RXBUF();
+		/* betzw - NOTE: there is a race condition between Spirit1 receiving packets and
+		 *               the MCU trying to send a packet, which gets resolved in favor of
+		 *               sending.
+		 */
+		if(_spirit_tx_started) {
 #ifdef DEBUG_IRQ
-		debug_if(_spirit_tx_started, "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
+			uint32_t *tmp = (uint32_t*)&x_irq_status;
+			debug("\n\r%s (%d): irq=%x", __func__, __LINE__, *tmp);
 #endif
-		start_rx_timeout();
+		} else {
+			_is_receiving = true;
+			_spirit_rx_err = false;
+			CLEAR_RXBUF();
+			start_rx_timeout();
+		}
 	}
 }

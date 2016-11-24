@@ -841,7 +841,7 @@ int8_t NanostackRfPhySpirit1::rf_register()
     /*Type of RF PHY is SubGHz*/
     device_driver.link_type = PHY_LINK_15_4_SUBGHZ_TYPE;
 
-    /*Maximum size of payload is 255*/
+    /*Maximum size of payload*/
     device_driver.phy_MTU = MAX_PACKET_LEN;
 
     /*No header in PHY*/
