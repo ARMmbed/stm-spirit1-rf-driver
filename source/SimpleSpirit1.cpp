@@ -128,7 +128,6 @@ void SimpleSpirit1::init() {
 	CLEAR_TXBUF();
 	CLEAR_RXBUF();
 	_spirit_tx_started = false;
-	_spirit_rx_err = false;
 	_is_receiving = false;
 
 	/* Configure the radio to route the IRQ signal to its GPIO 3 */
@@ -238,7 +237,6 @@ void SimpleSpirit1::set_ready_state(void) {
 
 	_spirit_tx_started = false;
 	_is_receiving = false;
-	_spirit_rx_err = false;
 	stop_rx_timeout();
 
 	cmd_strobe(SPIRIT1_STROBE_FRX);
@@ -451,18 +449,17 @@ void SimpleSpirit1::IrqHandler() {
 		uint32_t *tmp = (uint32_t*)&x_irq_status;
 		debug("\n\r%s (%d): irq=%x", __func__, __LINE__, *tmp);
 #endif
-		_spirit_rx_err = true;
-		_is_receiving = false;
-		CLEAR_RXBUF();
-		cmd_strobe(SPIRIT1_STROBE_FRX);
+		rx_timeout_handler();
 		if(_spirit_tx_started) {
 			_spirit_tx_started = false;
-			CLEAR_TXBUF();
 			/* call user callback */
 			if(_current_irq_callback) {
 				_current_irq_callback(TX_ERR);
 			}
 		}
+
+		/* Disable handling of other RX flags */
+		x_irq_status.IRQ_RX_DATA_READY = x_irq_status.IRQ_RX_FIFO_ALMOST_FULL = S_RESET;
 	}
 
 	/* Transmission error */
@@ -472,15 +469,16 @@ void SimpleSpirit1::IrqHandler() {
 		debug("\n\r%s (%d): irq=%x", __func__, __LINE__, *tmp);
 #endif
 		csma_ca_state(S_DISABLE); // disable CSMA/CA
-		cmd_strobe(SPIRIT1_STROBE_FTX);
 		if(_spirit_tx_started) {
 			_spirit_tx_started = false;
-			CLEAR_TXBUF();
 			/* call user callback */
 			if(_current_irq_callback) {
 				_current_irq_callback(TX_ERR);
 			}
 		}
+
+		/* Disable handling of other TX flags */
+		x_irq_status.IRQ_TX_DATA_SENT = S_RESET;
 	}
 
 	/* The IRQ_TX_DATA_SENT notifies the packet received. Puts the SPIRIT1 in RX */
@@ -489,10 +487,7 @@ void SimpleSpirit1::IrqHandler() {
 		debug_if(!_spirit_tx_started, "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
 #endif
 
-		_spirit_rx_err = false;
 		_spirit_tx_started = false;
-		CLEAR_TXBUF();
-		CLEAR_RXBUF();
 
 		/* call user callback */
 		if(_current_irq_callback) {
@@ -502,25 +497,20 @@ void SimpleSpirit1::IrqHandler() {
 
 	/* RX FIFO almost full */
 	if(x_irq_status.IRQ_RX_FIFO_ALMOST_FULL) {
-		if(_spirit_rx_err) {
-			_is_receiving = false;
-			cmd_strobe(SPIRIT1_STROBE_FRX);
-			CLEAR_RXBUF();
+		uint8_t fifo_available = linear_fifo_read_num_elements_rx_fifo();
+		unsigned int remaining = MAX_PACKET_LEN - _spirit_rx_pos;
+		if(fifo_available > remaining) {
+#ifdef DEBUG_IRQ
+			uint32_t *tmp = (uint32_t*)&x_irq_status;
+			debug("\n\r%s (%d): irq=%x", __func__, __LINE__, *tmp);
+#endif
+			rx_timeout_handler();
 		} else {
-			uint8_t fifo_available = linear_fifo_read_num_elements_rx_fifo();
-			unsigned int remaining = MAX_PACKET_LEN - _spirit_rx_pos;
-			if(fifo_available > remaining) {
-				_spirit_rx_err = true;
-				_is_receiving = false;
-				CLEAR_RXBUF();
-				cmd_strobe(SPIRIT1_STROBE_FRX);
-			} else {
-				spi_read_linear_fifo(fifo_available, &spirit_rx_buf[_spirit_rx_pos]);
-				_spirit_rx_pos += fifo_available;
-				if(!_is_receiving) {
-					_is_receiving = true;
-					start_rx_timeout();
-				}
+			spi_read_linear_fifo(fifo_available, &spirit_rx_buf[_spirit_rx_pos]);
+			_spirit_rx_pos += fifo_available;
+			if(!_is_receiving) {
+				_is_receiving = true;
+				start_rx_timeout();
 			}
 		}
 	}
@@ -530,34 +520,28 @@ void SimpleSpirit1::IrqHandler() {
 		_is_receiving = false; // Finished receiving
 		stop_rx_timeout();
 
-		if(_spirit_rx_err) {
-			_spirit_rx_err = false;
-			CLEAR_RXBUF();
-			cmd_strobe(SPIRIT1_STROBE_FRX);
-		} else {
-			spirit_rx_len = pkt_basic_get_received_pkt_length();
+		spirit_rx_len = pkt_basic_get_received_pkt_length();
 
 #ifdef DEBUG_IRQ
-			debug_if(!(spirit_rx_len <= MAX_PACKET_LEN), "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
+		debug_if(!(spirit_rx_len <= MAX_PACKET_LEN), "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
 #endif
 
-			for(; _spirit_rx_pos < spirit_rx_len;) {
-				uint8_t to_receive = spirit_rx_len - _spirit_rx_pos;
-				if(to_receive > 0) {
-					spi_read_linear_fifo(to_receive, &spirit_rx_buf[_spirit_rx_pos]);
-					_spirit_rx_pos += to_receive;
-				}
+		for(; _spirit_rx_pos < spirit_rx_len;) {
+			uint8_t to_receive = spirit_rx_len - _spirit_rx_pos;
+			if(to_receive > 0) {
+				spi_read_linear_fifo(to_receive, &spirit_rx_buf[_spirit_rx_pos]);
+				_spirit_rx_pos += to_receive;
 			}
+		}
 
-			cmd_strobe(SPIRIT1_STROBE_FRX);
+		cmd_strobe(SPIRIT1_STROBE_FRX);
 
-			last_rssi = qi_get_rssi(); //MGR
-			last_sqi  = qi_get_sqi();  //MGR
+		last_rssi = qi_get_rssi(); //MGR
+		last_sqi  = qi_get_sqi();  //MGR
 
-			/* call user callback */
-			if(_current_irq_callback) {
-				_current_irq_callback(RX_DONE);
-			}
+		/* call user callback */
+		if(_current_irq_callback) {
+			_current_irq_callback(RX_DONE);
 		}
 	}
 
@@ -574,8 +558,6 @@ void SimpleSpirit1::IrqHandler() {
 #endif
 		} else {
 			_is_receiving = true;
-			_spirit_rx_err = false;
-			CLEAR_RXBUF();
 			start_rx_timeout();
 		}
 	}

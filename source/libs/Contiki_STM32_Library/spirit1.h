@@ -137,7 +137,7 @@ void spirit1_interrupt_callback(void);
 #define CONTROL_LENGTH              PKT_CONTROL_LENGTH_0BYTES
 #define EN_ADDRESS                  S_DISABLE
 #define EN_FEC                      S_DISABLE
-#define CHANNEL_NUMBER              0
+#define CHANNEL_NUMBER              1 // betzw - WAS: 0
 #define LENGTH_TYPE                 PKT_LENGTH_VAR
 #define POWER_INDEX                 7
 #define RECEIVE_TIMEOUT             2000.0 /*change the value for required timeout period*/
