@@ -8,7 +8,11 @@
 
 // Arduino pin defaults for convenience
 #if !defined(SPIRIT1_SPI_MOSI)
+#ifdef PB5_ETH_PATCH
+#define SPIRIT1_SPI_MOSI   PB_5
+#else // !PB5_ETH_PATCH
 #define SPIRIT1_SPI_MOSI   D11
+#endif // !PB5_ETH_PATCH
 #endif
 #if !defined(SPIRIT1_SPI_MISO)
 #define SPIRIT1_SPI_MISO   D12
