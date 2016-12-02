@@ -448,6 +448,7 @@ void SimpleSpirit1::IrqHandler() {
 #ifdef DEBUG_IRQ
 		uint32_t *tmp = (uint32_t*)&x_irq_status;
 		debug("\n\r%s (%d): irq=%x", __func__, __LINE__, *tmp);
+		debug_if(!((*tmp) & (IRQ_RX_FIFO_ERROR_MASK | IRQ_RX_DATA_DISC_MASK)), "\n\rAssert failed in: %s (%d)", __func__, __LINE__);
 #endif
 		rx_timeout_handler();
 		if(_spirit_tx_started) {
@@ -467,6 +468,7 @@ void SimpleSpirit1::IrqHandler() {
 #ifdef DEBUG_IRQ
 		uint32_t *tmp = (uint32_t*)&x_irq_status;
 		debug("\n\r%s (%d): irq=%x", __func__, __LINE__, *tmp);
+		debug_if(!((*tmp) & IRQ_TX_FIFO_ERROR_MASK), "\n\rAssert failed in: %s (%d)", __func__, __LINE__);
 #endif
 		csma_ca_state(S_DISABLE); // disable CSMA/CA
 		if(_spirit_tx_started) {
@@ -484,7 +486,9 @@ void SimpleSpirit1::IrqHandler() {
 	/* The IRQ_TX_DATA_SENT notifies the packet received. Puts the SPIRIT1 in RX */
 	if(x_irq_status.IRQ_TX_DATA_SENT) {
 #ifdef DEBUG_IRQ
+		uint32_t *tmp = (uint32_t*)&x_irq_status;
 		debug_if(!_spirit_tx_started, "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
+		debug_if(!((*tmp) & IRQ_TX_DATA_SENT_MASK), "\n\rAssert failed in: %s (%d)", __func__, __LINE__);
 #endif
 
 		_spirit_tx_started = false;
@@ -497,6 +501,10 @@ void SimpleSpirit1::IrqHandler() {
 
 	/* RX FIFO almost full */
 	if(x_irq_status.IRQ_RX_FIFO_ALMOST_FULL) {
+#ifdef DEBUG_IRQ
+		uint32_t *tmp = (uint32_t*)&x_irq_status;
+		debug_if(!((*tmp) & IRQ_RX_FIFO_ALMOST_FULL_MASK), "\n\rAssert failed in: %s (%d)", __func__, __LINE__);
+#endif
 		uint8_t fifo_available = linear_fifo_read_num_elements_rx_fifo();
 		unsigned int remaining = MAX_PACKET_LEN - _spirit_rx_pos;
 		if(fifo_available > remaining) {
@@ -517,6 +525,10 @@ void SimpleSpirit1::IrqHandler() {
 
 	/* The IRQ_RX_DATA_READY notifies a new packet arrived */
 	if(x_irq_status.IRQ_RX_DATA_READY) {
+#ifdef DEBUG_IRQ
+		uint32_t *tmp = (uint32_t*)&x_irq_status;
+		debug_if(!((*tmp) & IRQ_RX_DATA_READY_MASK), "\n\rAssert failed in: %s (%d)", __func__, __LINE__);
+#endif
 		_is_receiving = false; // Finished receiving
 		stop_rx_timeout();
 
@@ -547,6 +559,10 @@ void SimpleSpirit1::IrqHandler() {
 
 	/* The IRQ_VALID_SYNC is used to notify a new packet is coming */
 	if(x_irq_status.IRQ_VALID_SYNC) {
+#ifdef DEBUG_IRQ
+		uint32_t *tmp = (uint32_t*)&x_irq_status;
+		debug_if(!((*tmp) & IRQ_VALID_SYNC_MASK), "\n\rAssert failed in: %s (%d)", __func__, __LINE__);
+#endif
 		/* betzw - NOTE: there is a race condition between Spirit1 receiving packets and
 		 *               the MCU trying to send a packet, which gets resolved in favor of
 		 *               sending.

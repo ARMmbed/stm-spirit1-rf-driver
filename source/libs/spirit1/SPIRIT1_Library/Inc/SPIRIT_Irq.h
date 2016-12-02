@@ -179,7 +179,7 @@ typedef struct
 	  SpiritFlagStatus  IRQ_RX_START_TIME:1;            /*!< IRQ: only for debug; RX circuitry startup time; see TX_START_COUNTER */
 	  SpiritFlagStatus  IRQ_RX_TIMEOUT:1;               /*!< IRQ: RX operation timeout */
 	  SpiritFlagStatus  IRQ_AES_END:1;                  /*!< IRQ: AES End of operation */
-	  SpiritFlagStatus  :1;                             /*!< Reserved bit */
+	  SpiritFlagStatus  reserved:1;                     /*!< Reserved bit */
 
 	  SpiritFlagStatus  IRQ_READY:1;                    /*!< IRQ: READY state */
 	  SpiritFlagStatus  IRQ_STANDBY_DELAYED:1;          /*!< IRQ: STANDBY state after MCU_CK_CONF_CLOCK_TAIL_X clock cycles */
@@ -210,6 +210,14 @@ typedef struct
 
 } SpiritIrqs;
 
+// betzw: uint32_t masks
+#define IRQ_RX_FIFO_ALMOST_FULL_MASK	(0x00040000) /* (1<<17) */
+#define IRQ_VALID_SYNC_MASK				(0x00200000) /* (1<<21) */
+#define IRQ_RX_DATA_READY_MASK			(0x01000000) /* (1<<24) */
+#define IRQ_RX_DATA_DISC_MASK			(0x02000000) /* (1<<25) */
+#define IRQ_TX_DATA_SENT_MASK			(0x04000000) /* (1<<26) */
+#define IRQ_TX_FIFO_ERROR_MASK			(0x20000000) /* (1<<29) */
+#define IRQ_RX_FIFO_ERROR_MASK			(0x40000000) /* (1<<30) */
 
 /**
  * @brief  IRQ list enumeration for SPIRIT. This enumeration type can be used to address a
