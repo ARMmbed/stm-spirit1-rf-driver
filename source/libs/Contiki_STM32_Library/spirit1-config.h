@@ -49,7 +49,7 @@
  * Furthermore, enable this macro if you want to use CSMA/CA.
  * NOTE: this enables just a workaround!!!
  */
-#define RX_FIFO_THR_AO_CSMA_WA
+// #define RX_FIFO_THR_AO_CSMA_WA
 
 /**    
  * The MAX_PACKET_LEN is an arbitrary value used to define the two array
@@ -60,7 +60,7 @@
 #ifdef RX_FIFO_THR_AO_CSMA_WA
 #define MAX_PACKET_LEN              (SPIRIT_MAX_FIFO_LEN-1)
 #else
-#define MAX_PACKET_LEN              (255) // betzw - WAS: SPIRIT_MAX_FIFO_LEN, but LEN_WIDTH is set to 7 so the variable payload length is from 0 to 255 bytes
+#define MAX_PACKET_LEN              (255) // betzw - WAS: SPIRIT_MAX_FIFO_LEN, but LEN_WIDTH is set to 7 so the variable payload length is theoretically from 0 to 255 bytes
 #endif
 
 /*---------------------------------------------------------------------------*/

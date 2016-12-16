@@ -211,7 +211,7 @@ typedef struct
 } SpiritIrqs;
 
 // betzw: uint32_t masks
-#define IRQ_RX_FIFO_ALMOST_FULL_MASK	(0x00040000) /* (1<<17) */
+#define IRQ_RX_FIFO_ALMOST_FULL_MASK	(0x00020000) /* (1<<16) */
 #define IRQ_VALID_SYNC_MASK				(0x00200000) /* (1<<21) */
 #define IRQ_RX_DATA_READY_MASK			(0x01000000) /* (1<<24) */
 #define IRQ_RX_DATA_DISC_MASK			(0x02000000) /* (1<<25) */
