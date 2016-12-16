@@ -138,8 +138,6 @@ void SimpleSpirit1::init() {
 	};
 	spirit_gpio_init(&x_gpio_init);
 
-// #ifdef RX_FIFO_THR_AO_CSMA_WA
-	// betzw - TODO: enabling CSMA/CA seems to be incompatible with TX FIFO usage (to be investigated)
 	/* Setup CSMA/CA */
 	CsmaInit x_csma_init = {
 			S_ENABLE,         // enable persistent mode
@@ -150,12 +148,9 @@ void SimpleSpirit1::init() {
 			8                 // BU prescaler
 	};
 	csma_ca_init(&x_csma_init);
-// #endif
 
-#ifdef RX_FIFO_THR_AO_CSMA_WA
+#ifdef RX_FIFO_THR_WA
 	linear_fifo_set_almost_full_thr_rx(SPIRIT_MAX_FIFO_LEN-(MAX_PACKET_LEN+1));
-#else
-	linear_fifo_set_almost_full_thr_rx(20); // betzw: heuristic value
 #endif
 
 #ifdef USE_STANDBY_STATE
@@ -190,10 +185,7 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 
 	pkt_basic_set_payload_length(payload_len); // set desired payload len
 
-// #ifdef RX_FIFO_THR_AO_CSMA_WA
-	// betzw - TODO: enabling CSMA/CA seems to be incompatible with TX FIFO usage (to be investigated)
 	csma_ca_state(S_ENABLE); // enable CSMA/CA
-// #endif
 
 	int i = 0;
 	int remaining = payload_len;
@@ -229,10 +221,7 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 
 	_spirit_tx_started = false; // in case of state timeout
 
-// #ifdef RX_FIFO_THR_AO_CSMA_WA
-	// betzw - TODO: enabling CSMA/CA seems to be incompatible with TX FIFO usage (to be investigated)
 	csma_ca_state(S_DISABLE); // disable CSMA/CA
-// #endif
 
 	cmd_strobe(SPIRIT1_STROBE_RX); // Return to RX state
 
@@ -518,8 +507,8 @@ void SimpleSpirit1::IrqHandler() {
 		debug_if(!((*tmp) & IRQ_RX_DATA_READY_MASK), "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
 #endif
 
-		if(!_is_receiving) { // spurious irq?!?
-#ifdef DEBUG_IRQ
+		if(!_is_receiving) { // spurious irq?!? (betzw: see comments on macro 'RX_FIFO_THR_WA'!)
+#ifdef HEAVY_DEBUG
 			debug("\n\r%s (%d): irq=%x\n\r", __func__, __LINE__, *tmp);
 #endif
 		} else {
