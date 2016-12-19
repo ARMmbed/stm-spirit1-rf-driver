@@ -51,7 +51,7 @@ void SimpleSpirit1::init() {
 
 	/* configure spi */
 	_spi.format(8, 0); /* 8-bit, mode = 0, [order = SPI_MSB] only available in mbed3 */
-	_spi.frequency(100000); // 100kHz // betzw: heuristic value // betzw - NOTE: high frequencies lead to instability of Spirit1
+	_spi.frequency(1000000); // 1MHz // betzw: heuristic value // betzw - NOTE: high frequencies lead to instability of Spirit1
 
 	/* install irq handler */
 	_irq.mode(PullUp);
@@ -110,6 +110,7 @@ void SimpleSpirit1::init() {
 	irq_set_status(RX_DATA_READY,S_ENABLE);
 	irq_set_status(RX_DATA_DISC, S_ENABLE);
 	irq_set_status(TX_FIFO_ERROR, S_ENABLE);
+	irq_set_status(TX_FIFO_ALMOST_EMPTY, S_ENABLE);
 	irq_set_status(RX_FIFO_ERROR, S_ENABLE);
 	irq_set_status(RX_FIFO_ALMOST_FULL, S_ENABLE);
 	irq_set_status(VALID_SYNC, S_ENABLE);
@@ -150,7 +151,7 @@ void SimpleSpirit1::init() {
 	csma_ca_init(&x_csma_init);
 
 #ifdef RX_FIFO_THR_WA
-	linear_fifo_set_almost_full_thr_rx(SPIRIT_MAX_FIFO_LEN-(MAX_PACKET_LEN+1));
+	linear_fifo_set_almost_full_thr_rx(0);
 #endif
 
 #ifdef USE_STANDBY_STATE
@@ -159,6 +160,9 @@ void SimpleSpirit1::init() {
 #endif // USE_STANDBY_STATE
 }
 
+static volatile int tx_fifo_remaining = 0;     // to be used in irq handler
+static volatile int tx_buffer_pos = 0;         // to be used in irq handler
+const volatile uint8_t *tx_fifo_buffer = NULL; // to be used in irq handler
 int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 	/* Checks if the payload length is supported */
 	if(payload_len > MAX_PACKET_LEN) {
@@ -187,32 +191,29 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 
 	csma_ca_state(S_ENABLE); // enable CSMA/CA
 
-	int i = 0;
-	int remaining = payload_len;
-	const uint8_t *buffer = (const uint8_t*)payload;
-	bool tx_triggered = false;
-	int8_t fifo_available = (3*SPIRIT_MAX_FIFO_LEN/4) - linear_fifo_read_num_elements_tx_fifo(); // betzw: heuristic value
-	do {
-		int8_t to_send = (remaining > fifo_available) ? fifo_available : remaining;
+	/* Init buffer & number of bytes to be send */
+	tx_fifo_remaining = payload_len;
+	tx_fifo_buffer = (const uint8_t*)payload;
 
-		/* Fill FIFO Buffer */
-		if(to_send > 0) {
-			spi_write_linear_fifo(to_send, (uint8_t*)&buffer[i]);
-		}
+	int8_t fifo_available = SPIRIT_MAX_FIFO_LEN; // fill-up whole fifo
+	int8_t to_send = (tx_fifo_remaining > fifo_available) ? fifo_available : tx_fifo_remaining;
 
-		if(!tx_triggered) {
-			cmd_strobe(SPIRIT1_STROBE_TX);
-			tx_triggered = true;
-		}
+	tx_fifo_remaining -= to_send;
 
-		i += to_send;
-		remaining -= to_send;
-		fifo_available = SPIRIT_MAX_FIFO_LEN - linear_fifo_read_num_elements_tx_fifo();
-	} while(remaining != 0);
+	/* Fill FIFO Buffer */
+	if(to_send > 0) {
+		spi_write_linear_fifo(to_send, (uint8_t*)&tx_fifo_buffer[0]);
+	}
 
+	tx_buffer_pos = to_send;
 	_spirit_tx_started = true;
 
 	enable_spirit_irq();
+
+	/* Start transmitting */
+	cmd_strobe(SPIRIT1_STROBE_TX);
+
+	while(tx_fifo_remaining != 0); // wait until not everything is yet send (evtl. by irq handler)
 
 	BUSYWAIT_UNTIL(!_spirit_tx_started, STATE_TIMEOUT);
 #ifdef HEAVY_DEBUG
@@ -445,24 +446,49 @@ void SimpleSpirit1::IrqHandler() {
 	/* get interrupt source from radio */
 	irq_get_status(&x_irq_status);
 
-	/* Reception errors */
-	if((x_irq_status.IRQ_RX_FIFO_ERROR) || (x_irq_status.IRQ_RX_DATA_DISC)) {
+	/* The IRQ_TX_DATA_SENT notifies the packet received. Puts the SPIRIT1 in RX */
+	if(x_irq_status.IRQ_TX_DATA_SENT) {
 #ifdef DEBUG_IRQ
 		uint32_t *tmp = (uint32_t*)&x_irq_status;
-		debug("\n\r%s (%d): irq=%x\n\r", __func__, __LINE__, *tmp);
-		debug_if(!((*tmp) & (IRQ_RX_FIFO_ERROR_MASK | IRQ_RX_DATA_DISC_MASK)), "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
+		debug_if(!_spirit_tx_started, "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
+		debug_if(!((*tmp) & IRQ_TX_DATA_SENT_MASK), "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
+		debug_if(tx_fifo_remaining != 0, "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
 #endif
-		rx_timeout_handler();
-		if(_spirit_tx_started) {
-			_spirit_tx_started = false;
-			/* call user callback */
-			if(_current_irq_callback) {
-				_current_irq_callback(TX_ERR);
-			}
+
+		tx_fifo_buffer = NULL;
+		_spirit_tx_started = false;
+
+		/* call user callback */
+		if(_current_irq_callback) {
+			_current_irq_callback(TX_DONE);
 		}
 
-		/* Disable handling of other RX flags */
-		x_irq_status.IRQ_RX_DATA_READY = x_irq_status.IRQ_RX_FIFO_ALMOST_FULL = S_RESET;
+		/* Disable handling of other TX flags */
+		x_irq_status.IRQ_TX_FIFO_ALMOST_EMPTY = x_irq_status.IRQ_TX_FIFO_ERROR = S_RESET;
+	}
+
+	/* The IRQ_TX_FIFO_ALMOST_EMPTY notifies an nearly empty TX fifo */
+	if(x_irq_status.IRQ_TX_FIFO_ALMOST_EMPTY) {
+#ifdef DEBUG_IRQ
+		uint32_t *tmp = (uint32_t*)&x_irq_status;
+		debug_if(!((*tmp) & IRQ_TX_FIFO_ALMOST_EMPTY_MASK), "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
+		debug_if(!_spirit_tx_started, "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
+		debug_if(tx_fifo_buffer == NULL, "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
+#endif
+
+		int8_t fifo_available = SPIRIT_MAX_FIFO_LEN/2; // fill-up half fifo
+		int8_t to_send = (tx_fifo_remaining > fifo_available) ? fifo_available : tx_fifo_remaining;
+
+		tx_fifo_remaining -= to_send;
+
+		/* Fill FIFO Buffer */
+		if(to_send > 0) {
+			spi_write_linear_fifo(to_send, (uint8_t*)&tx_fifo_buffer[tx_buffer_pos]);
+		}
+		tx_buffer_pos += to_send;
+
+		/* Disable handling of other TX flags */
+		x_irq_status.IRQ_TX_FIFO_ERROR = S_RESET;
 	}
 
 	/* Transmission error */
@@ -480,24 +506,8 @@ void SimpleSpirit1::IrqHandler() {
 			}
 		}
 
-		/* Disable handling of other TX flags */
-		x_irq_status.IRQ_TX_DATA_SENT = S_RESET;
-	}
-
-	/* The IRQ_TX_DATA_SENT notifies the packet received. Puts the SPIRIT1 in RX */
-	if(x_irq_status.IRQ_TX_DATA_SENT) {
-#ifdef DEBUG_IRQ
-		uint32_t *tmp = (uint32_t*)&x_irq_status;
-		debug_if(!_spirit_tx_started, "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
-		debug_if(!((*tmp) & IRQ_TX_DATA_SENT_MASK), "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
-#endif
-
-		_spirit_tx_started = false;
-
-		/* call user callback */
-		if(_current_irq_callback) {
-			_current_irq_callback(TX_DONE);
-		}
+		/* reset data still to be sent */
+		tx_fifo_remaining = 0;
 	}
 
 	/* The IRQ_RX_DATA_READY notifies a new packet arrived */
@@ -540,7 +550,7 @@ void SimpleSpirit1::IrqHandler() {
 			}
 
 			/* Disable handling of other RX flags */
-			x_irq_status.IRQ_RX_FIFO_ALMOST_FULL = S_RESET;
+			x_irq_status.IRQ_RX_FIFO_ERROR = x_irq_status.IRQ_RX_FIFO_ALMOST_FULL = S_RESET;
 		}
 	}
 
@@ -559,7 +569,6 @@ void SimpleSpirit1::IrqHandler() {
 			spi_read_linear_fifo(fifo_available, &spirit_rx_buf[_spirit_rx_pos]);
 			_spirit_rx_pos += fifo_available;
 
-#if 1
 			spirit_rx_len = pkt_basic_get_received_pkt_length();
 
 #ifdef DEBUG_IRQ
@@ -580,8 +589,25 @@ void SimpleSpirit1::IrqHandler() {
 					_current_irq_callback(RX_DONE);
 				}
 			}
-#endif // 0
+			/* Disable handling of other RX flags */
+			x_irq_status.IRQ_RX_FIFO_ERROR = S_RESET;
+		}
+	}
 
+	/* Reception errors */
+	if((x_irq_status.IRQ_RX_FIFO_ERROR) || (x_irq_status.IRQ_RX_DATA_DISC)) {
+#ifdef DEBUG_IRQ
+		uint32_t *tmp = (uint32_t*)&x_irq_status;
+		debug("\n\r%s (%d): irq=%x\n\r", __func__, __LINE__, *tmp);
+		debug_if(!((*tmp) & (IRQ_RX_FIFO_ERROR_MASK | IRQ_RX_DATA_DISC_MASK)), "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
+#endif
+		rx_timeout_handler();
+		if(_spirit_tx_started) {
+			_spirit_tx_started = false;
+			/* call user callback */
+			if(_current_irq_callback) {
+				_current_irq_callback(TX_ERR);
+			}
 		}
 	}
 

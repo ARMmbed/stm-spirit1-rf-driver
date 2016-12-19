@@ -43,22 +43,19 @@
 /*---------------------------------------------------------------------------*/
 
 /* Sometimes Spirit1 seems to NOT deliver (correctly) the 'IRQ_RX_DATA_READY'
- * event.
+ * event for packets which have a length which is close to a multiple of
+ * RX FIFO size. Furthermore, in these cases also the content delivery seems
+ * to be compromised as well as the generation of RX/TX FIFO errors.
  * This can be avoided by reducing the maximum packet length to a value which
  * is lower than the RX FIFO size.
- * The mbed driver currently implements another workaround to this which allows
- * stable packet delivery of packets with maximum length up to 128 bytes
- * (which is the recommended 6LoWPAN payload length).
+ *
  * Enable beyond macro if you want to use the version of the driver which avoids
  * FIFO overflows by reducing packet length.
  *
  * NOTE: the non delivery of event 'IRQ_RX_DATA_READY' MUST still be
  *       investigated further deeply (both on HW & SW level)!
- *       Furthermore, the current limit of 128 bytes should also be overcome,
- *       which again requires a further analysis of the RX process, which
- *       currently seems to run into RX FIFO (most likely) overflow situations.
  */
-// #define RX_FIFO_THR_WA
+#define RX_FIFO_THR_WA
 
 /**    
  * The MAX_PACKET_LEN is an arbitrary value used to define the two array
@@ -69,7 +66,7 @@
 #ifdef RX_FIFO_THR_WA
 #define MAX_PACKET_LEN              (SPIRIT_MAX_FIFO_LEN-1)
 #else
-#define MAX_PACKET_LEN              (128) // betzw - WAS: SPIRIT_MAX_FIFO_LEN, but LEN_WIDTH is set to 7 so the variable payload length is theoretically from 0 to 255 bytes
+#define MAX_PACKET_LEN              (255) // betzw - WAS: SPIRIT_MAX_FIFO_LEN, but LEN_WIDTH is set to 7 so the variable payload length is theoretically from 0 to 255 bytes
 #endif
 
 /*---------------------------------------------------------------------------*/
