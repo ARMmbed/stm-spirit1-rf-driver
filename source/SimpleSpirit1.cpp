@@ -464,7 +464,7 @@ void SimpleSpirit1::IrqHandler() {
 		}
 
 		/* Disable handling of other TX flags */
-		x_irq_status.IRQ_TX_FIFO_ALMOST_EMPTY = x_irq_status.IRQ_TX_FIFO_ERROR = S_RESET;
+		x_irq_status.IRQ_TX_FIFO_ALMOST_EMPTY = S_RESET;
 	}
 
 	/* The IRQ_TX_FIFO_ALMOST_EMPTY notifies an nearly empty TX fifo */
@@ -486,9 +486,6 @@ void SimpleSpirit1::IrqHandler() {
 			spi_write_linear_fifo(to_send, (uint8_t*)&tx_fifo_buffer[tx_buffer_pos]);
 		}
 		tx_buffer_pos += to_send;
-
-		/* Disable handling of other TX flags */
-		x_irq_status.IRQ_TX_FIFO_ERROR = S_RESET;
 	}
 
 	/* Transmission error */
@@ -550,7 +547,7 @@ void SimpleSpirit1::IrqHandler() {
 			}
 
 			/* Disable handling of other RX flags */
-			x_irq_status.IRQ_RX_FIFO_ERROR = x_irq_status.IRQ_RX_FIFO_ALMOST_FULL = S_RESET;
+			x_irq_status.IRQ_RX_FIFO_ALMOST_FULL = S_RESET;
 		}
 	}
 
@@ -568,29 +565,6 @@ void SimpleSpirit1::IrqHandler() {
 			uint8_t fifo_available = linear_fifo_read_num_elements_rx_fifo();
 			spi_read_linear_fifo(fifo_available, &spirit_rx_buf[_spirit_rx_pos]);
 			_spirit_rx_pos += fifo_available;
-
-			spirit_rx_len = pkt_basic_get_received_pkt_length();
-
-#ifdef DEBUG_IRQ
-			debug_if(!(spirit_rx_len <= MAX_PACKET_LEN), "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
-#endif
-
-			if((spirit_rx_len > 0) && (_spirit_rx_pos >= spirit_rx_len)) { // already received everything
-				_is_receiving = false; // Finished receiving
-				stop_rx_timeout();
-
-				cmd_strobe(SPIRIT1_STROBE_FRX);
-
-				last_rssi = qi_get_rssi(); //MGR
-				last_sqi  = qi_get_sqi();  //MGR
-
-				/* call user callback */
-				if(_current_irq_callback) {
-					_current_irq_callback(RX_DONE);
-				}
-			}
-			/* Disable handling of other RX flags */
-			x_irq_status.IRQ_RX_FIFO_ERROR = S_RESET;
 		}
 	}
 
