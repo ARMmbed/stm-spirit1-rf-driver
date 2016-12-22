@@ -109,11 +109,13 @@ void SimpleSpirit1::init() {
 	irq_set_status(TX_DATA_SENT, S_ENABLE);
 	irq_set_status(RX_DATA_READY,S_ENABLE);
 	irq_set_status(RX_DATA_DISC, S_ENABLE);
-	irq_set_status(TX_FIFO_ERROR, S_ENABLE);
-	irq_set_status(TX_FIFO_ALMOST_EMPTY, S_ENABLE);
-	irq_set_status(RX_FIFO_ERROR, S_ENABLE);
-	irq_set_status(RX_FIFO_ALMOST_FULL, S_ENABLE);
 	irq_set_status(VALID_SYNC, S_ENABLE);
+	irq_set_status(TX_FIFO_ERROR, S_ENABLE);
+	irq_set_status(RX_FIFO_ERROR, S_ENABLE);
+#ifndef RX_FIFO_THR_WA
+	irq_set_status(TX_FIFO_ALMOST_EMPTY, S_ENABLE);
+	irq_set_status(RX_FIFO_ALMOST_FULL, S_ENABLE);
+#endif // !RX_FIFO_THR_WA
 
 	/* Configure Spirit1 */
 	radio_persistent_rx(S_ENABLE);
@@ -149,10 +151,6 @@ void SimpleSpirit1::init() {
 			8                 // BU prescaler
 	};
 	csma_ca_init(&x_csma_init);
-
-#ifdef RX_FIFO_THR_WA
-	linear_fifo_set_almost_full_thr_rx(0);
-#endif
 
 #ifdef USE_STANDBY_STATE
 	/* Puts the SPIRIT1 in STANDBY mode (125us -> rx/tx) */
@@ -467,6 +465,7 @@ void SimpleSpirit1::IrqHandler() {
 		x_irq_status.IRQ_TX_FIFO_ALMOST_EMPTY = S_RESET;
 	}
 
+#ifndef RX_FIFO_THR_WA
 	/* The IRQ_TX_FIFO_ALMOST_EMPTY notifies an nearly empty TX fifo */
 	if(x_irq_status.IRQ_TX_FIFO_ALMOST_EMPTY) {
 #ifdef DEBUG_IRQ
@@ -487,6 +486,7 @@ void SimpleSpirit1::IrqHandler() {
 		}
 		tx_buffer_pos += to_send;
 	}
+#endif // !RX_FIFO_THR_WA
 
 	/* Transmission error */
 	if(x_irq_status.IRQ_TX_FIFO_ERROR) {
@@ -551,6 +551,7 @@ void SimpleSpirit1::IrqHandler() {
 		}
 	}
 
+#ifndef RX_FIFO_THR_WA
 	/* RX FIFO almost full */
 	if(x_irq_status.IRQ_RX_FIFO_ALMOST_FULL) {
 #ifdef DEBUG_IRQ
@@ -567,6 +568,7 @@ void SimpleSpirit1::IrqHandler() {
 			_spirit_rx_pos += fifo_available;
 		}
 	}
+#endif // !RX_FIFO_THR_WA
 
 	/* Reception errors */
 	if((x_irq_status.IRQ_RX_FIFO_ERROR) || (x_irq_status.IRQ_RX_DATA_DISC)) {
