@@ -525,10 +525,10 @@ void SimpleSpirit1::IrqHandler() {
 			spirit_rx_len = pkt_basic_get_received_pkt_length();
 
 #ifdef DEBUG_IRQ
-			debug_if(!(spirit_rx_len <= MAX_PACKET_LEN), "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);
+			debug_if(!(spirit_rx_len <= MAX_PACKET_LEN), "\n\r%s (%d): irq=%x\n\r", __func__, __LINE__, *tmp);
 #endif
 
-			for(; _spirit_rx_pos < spirit_rx_len;) {
+			if(spirit_rx_len <= MAX_PACKET_LEN) {
 				uint8_t to_receive = spirit_rx_len - _spirit_rx_pos;
 				if(to_receive > 0) {
 					spi_read_linear_fifo(to_receive, &spirit_rx_buf[_spirit_rx_pos]);
@@ -542,7 +542,7 @@ void SimpleSpirit1::IrqHandler() {
 			last_sqi  = qi_get_sqi();  //MGR
 
 			/* call user callback */
-			if(_current_irq_callback) {
+			if((_spirit_rx_pos == spirit_rx_len) && _current_irq_callback) {
 				_current_irq_callback(RX_DONE);
 			}
 
@@ -564,8 +564,14 @@ void SimpleSpirit1::IrqHandler() {
 #endif
 		} else {
 			uint8_t fifo_available = linear_fifo_read_num_elements_rx_fifo();
-			spi_read_linear_fifo(fifo_available, &spirit_rx_buf[_spirit_rx_pos]);
-			_spirit_rx_pos += fifo_available;
+			if((fifo_available + _spirit_rx_pos) <= MAX_PACKET_LEN) {
+				spi_read_linear_fifo(fifo_available, &spirit_rx_buf[_spirit_rx_pos]);
+				_spirit_rx_pos += fifo_available;
+			} else {
+#ifdef DEBUG_IRQ
+				debug("\n\r%s (%d): irq=%x\n\r", __func__, __LINE__, *tmp);
+#endif
+			}
 		}
 	}
 #endif // !RX_FIFO_THR_WA
