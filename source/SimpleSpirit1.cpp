@@ -605,7 +605,6 @@ void SimpleSpirit1::IrqHandler() {
 		 */
 		if(_spirit_tx_started) {
 #ifdef DEBUG_IRQ
-			uint32_t *tmp = (uint32_t*)&x_irq_status;
 			debug("\n\r%s (%d): irq=%x\n\r", __func__, __LINE__, *tmp);
 #endif
 		} else {
