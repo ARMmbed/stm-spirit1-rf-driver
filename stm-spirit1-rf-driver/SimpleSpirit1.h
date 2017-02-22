@@ -17,7 +17,7 @@
 
 
 // betzw: enable beyond macro if you want debug messages also from IRQ handler
-#define DEBUG_IRQ
+// #define DEBUG_IRQ
 
 
 /*** Macros from Cube Implementation ***/
