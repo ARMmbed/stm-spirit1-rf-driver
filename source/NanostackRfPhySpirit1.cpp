@@ -30,16 +30,7 @@ static uint8_t rf_rx_buf[MAX_PACKET_LEN];
 
 static uint16_t stored_short_adr;
 static uint16_t stored_pan_id;
-static uint8_t stored_mac_address[8] = {
-		MBED_CONF_SPIRIT1_MAC_ADDRESS_0,
-		MBED_CONF_SPIRIT1_MAC_ADDRESS_1,
-		MBED_CONF_SPIRIT1_MAC_ADDRESS_2,
-		MBED_CONF_SPIRIT1_MAC_ADDRESS_3,
-		MBED_CONF_SPIRIT1_MAC_ADDRESS_4,
-		MBED_CONF_SPIRIT1_MAC_ADDRESS_5,
-		MBED_CONF_SPIRIT1_MAC_ADDRESS_6,
-		MBED_CONF_SPIRIT1_MAC_ADDRESS_7
-};
+static uint8_t stored_mac_address[8] = MBED_CONF_SPIRIT1_MAC_ADDRESS;
 
 #define RF_SIG_ACK_NEEDED (1<<0)
 static Thread rf_ack_sender(osPriorityRealtime);
