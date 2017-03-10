@@ -7,6 +7,6 @@ Currently supported boards:
  * **Un**mount resistor `R4`
  * **Mount** resistor `R7`
  
-Furthermore, on some Nucleo development boards (e.g. the [NUCLEO_F429ZI](https://developer.mbed.org/platforms/ST-Nucleo-F429ZI/)), in order to be able to use Ethernet together with these Sub-1 GHz RF expansion boards, you need to compile this driver with macro `SPIRIT1_SPI_MOSI=PB_5` defined!
+Furthermore, on some Nucleo development boards (e.g. the [NUCLEO_F429ZI](https://developer.mbed.org/platforms/ST-Nucleo-F429ZI/)), in order to be able to use Ethernet together with these Sub-1 GHz RF expansion boards, you need to compile this driver with macro `SPIRIT1_SPI_MOSI=PB_5` defined, while the development board typically requires some HW modification as e.g. described [here](https://github.com/ARMmbed/sal-nanostack-driver-stm32-eth)! 
 
 This driver is used with 6LoWPAN stack.
