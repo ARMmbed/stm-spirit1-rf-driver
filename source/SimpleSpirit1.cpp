@@ -438,6 +438,7 @@ int SimpleSpirit1::get_pending_packet(void)
 }
 
 /** Spirit Irq Callback **/
+/* betzw - TODO: use threaded interrupt handling when `MBED_CONF_RTOS_PRESENT` is defined (see `atmel-rf-driver`) */
 void SimpleSpirit1::IrqHandler() {
 	st_lib_spirit_irqs x_irq_status;
 

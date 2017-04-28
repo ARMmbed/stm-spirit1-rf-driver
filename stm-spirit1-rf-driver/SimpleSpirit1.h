@@ -39,7 +39,7 @@
 extern "C" void SpiritManagementSetFrequencyBase(uint32_t);
 
 
-/*** UnlockedSPI for Performance (due to singleton) ***/
+/*** UnlockedSPI for Usage in IRQ context ***/
 class UnlockedSPI : public SPI {
 public:
     UnlockedSPI(PinName mosi, PinName miso, PinName sclk) :
