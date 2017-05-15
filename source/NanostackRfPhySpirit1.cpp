@@ -91,8 +91,10 @@ static int8_t rf_trigger_send(uint8_t *data_ptr, uint16_t data_length, uint8_t t
 
     /*Check if transmitter is busy*/
     if(rf_device->is_receiving()) { /* betzw - WAS: (rf_device->channel_clear() != 0)), do NOT use this but rather study and enable automatic CCA */
+#ifdef HEAVY_TRACING
 	tr_debug("%s (%d)", __func__, __LINE__);
-
+#endif
+	
 	/* Release Lock */
 	rf_if_unlock();
 
@@ -632,7 +634,9 @@ static void rf_ack_loop(void) {
 	    /*Send the packet*/
 	    rf_device->send((uint8_t*)buffer, 3);
 
+#ifdef HEAVY_TRACING
 	    tr_debug("%s (%d), hdr=%x, nr=%x", __func__, __LINE__, buffer[0], ptr[0]);
+#endif
 	}
 
 	if(signals & RF_SIG_CB_TX_DONE) {
