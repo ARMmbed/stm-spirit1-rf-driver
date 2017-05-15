@@ -6,7 +6,7 @@
 #include "mbed_trace.h"
 #define TRACE_GROUP  "SPIRIT"
 
-/* Define beyond macro if you want to perform heavy debug tracing also in IRQ context */
+/* Define beyond macro if you want to perform heavy debug tracing (includes tracing in IRQ context) */
 // #define HEAVY_TRACING
 
 static phy_device_driver_s device_driver;
