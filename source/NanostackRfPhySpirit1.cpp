@@ -1,3 +1,5 @@
+#if MBED_CONF_RTOS_PRESENT
+
 #include "NanostackRfPhySpirit1.h"
 #include "SimpleSpirit1.h"
 #include "nanostack/platform/arm_hal_phy.h"
@@ -804,3 +806,5 @@ void NanostackRfPhySpirit1::set_mac_address(uint8_t *mac)
     /* Release Lock */
     rf_if_unlock();
 }
+
+#endif /* MBED_CONF_RTOS_PRESENT */
