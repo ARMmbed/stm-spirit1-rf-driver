@@ -51,7 +51,7 @@ void SimpleSpirit1::init() {
 
 	/* configure spi */
 	_spi.format(8, 0); /* 8-bit, mode = 0, [order = SPI_MSB] only available in mbed3 */
-	_spi.frequency(1000000); // 1MHz // betzw: heuristic value // betzw - NOTE: high frequencies lead to instability of Spirit1
+	_spi.frequency(10000000); // 10MHz (i.e. max speed allowed for Spirit1)
 
 	/* install irq handler */
 	_irq.mode(PullUp);
