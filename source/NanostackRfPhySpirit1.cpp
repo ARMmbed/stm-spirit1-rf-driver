@@ -251,8 +251,8 @@ static inline void rf_set_short_adr(uint8_t *ptr) {
 static inline void rf_set_pan_id(uint8_t *ptr) {
     stored_pan_id = (ptr[0] << 8) + ptr[1]; // big-endian
     tr_debug("%s (%d), adr0=%x, adr1=%x, val=%d",
-             __func__, __LINE__,
-             ptr[0], ptr[1], stored_pan_id);
+            __func__, __LINE__,
+            ptr[0], ptr[1], stored_pan_id);
 }
 
 static int8_t rf_address_write(phy_address_type_e address_type, uint8_t *address_ptr)
@@ -315,7 +315,14 @@ static void rf_handle_ack(uint8_t seq_number)
 /* Note: we are in IRQ context */
 static inline bool rf_check_mac_address(uint8_t *dest) {
     for(int i = 0; i < 8; i++) {
-        if(dest[i] != stored_mac_address[7-i]) return false;
+        if(dest[i] != stored_mac_address[7-i]) {
+#ifdef HEAVY_TRACING
+            tr_debug("%s (%d): i=%d, dest=%x, stored=%x",
+                    __func__, __LINE__,
+                    i, dest[i], stored_mac_address[7-i]);
+#endif
+            return false;
+        }
     }
     return true;
 }
@@ -369,6 +376,7 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
         case 0x00:
             ret = true; // no check possible;
             break;
+
         case 0x02:
             min_size += 4; // pan id + short dest adr
 
@@ -380,24 +388,11 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
             }
 
             dst_pan_id = rf_read_16_bit(&rf_rx_buf[3]);
-            if(dst_pan_id == 0xFFFF) {
+            if((dst_pan_id != stored_pan_id) && (dst_pan_id != 0xFFFF)) {
 #ifdef HEAVY_TRACING
                 tr_debug("%s (%d)", __func__, __LINE__);
 #endif
-                ret = true;
-                break;
-            }
-
-            if(dst_pan_id == stored_pan_id) {
-#ifdef HEAVY_TRACING
-                tr_debug("%s (%d)", __func__, __LINE__);
-#endif
-                ret = true;
-                break;
-            } else {
-#ifdef HEAVY_TRACING
-                tr_debug("%s (%d): %d!=%d", __func__, __LINE__, dst_pan_id, stored_pan_id);
-#endif
+                return false;
             }
 
             if(len < 7) {
@@ -408,18 +403,16 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
             }
 
             dst_short_adr = rf_read_16_bit(&rf_rx_buf[5]);
-            if(dst_short_adr == stored_short_adr) {
-#ifdef HEAVY_TRACING
-                tr_debug("%s (%d)", __func__, __LINE__);
-#endif
-                ret = true;
-                break;
-            } else {
+            if((dst_short_adr != stored_short_adr) && (dst_short_adr != 0xFFFF)) {
 #ifdef HEAVY_TRACING
                 tr_debug("%s (%d): %d!=%d", __func__, __LINE__, dst_short_adr, stored_short_adr);
 #endif
+                return false;
             }
+
+            ret = true;
             break;
+
         case 0x03:
             min_size += 10; // pan id + dest mac addr
 
@@ -431,20 +424,11 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
             }
 
             dst_pan_id = rf_read_16_bit(&rf_rx_buf[3]);
-            if(dst_pan_id == 0xFFFF) {
+            if((dst_pan_id != stored_pan_id) && (dst_pan_id != 0xFFFF)) {
 #ifdef HEAVY_TRACING
                 tr_debug("%s (%d)", __func__, __LINE__);
 #endif
-                ret = true;
-                break;
-            }
-
-            if(dst_pan_id == stored_pan_id) {
-#ifdef HEAVY_TRACING
-                tr_debug("%s (%d)", __func__, __LINE__);
-#endif
-                ret = true;
-                break;
+                return false;
             }
 
             if(len < 13) {
@@ -455,7 +439,16 @@ static bool rf_check_destination(int len, uint8_t *ack_requested) {
             }
 
             ret = rf_check_mac_address(&rf_rx_buf[5]);
+
+            if(!ret) {
+#ifdef HEAVY_TRACING
+                tr_debug("%s (%d)", __func__, __LINE__);
+#endif
+                return false;
+            }
+
             break;
+
         default:
             /* not supported */
 #ifdef HEAVY_TRACING
@@ -686,13 +679,13 @@ void NanostackRfPhySpirit1::rf_init(void) {
 
 NanostackRfPhySpirit1::NanostackRfPhySpirit1(PinName spi_mosi, PinName spi_miso, PinName spi_sclk,
                                              PinName dev_irq,  PinName dev_cs, PinName dev_sdn, PinName brd_led) :
-            _spi_mosi(spi_mosi),
-            _spi_miso(spi_miso),
-            _spi_sclk(spi_sclk),
-            _dev_irq(dev_irq),
-            _dev_cs(dev_cs),
-            _dev_sdn(dev_sdn),
-            _brd_led(brd_led)
+    _spi_mosi(spi_mosi),
+    _spi_miso(spi_miso),
+    _spi_sclk(spi_sclk),
+    _dev_irq(dev_irq),
+    _dev_cs(dev_cs),
+    _dev_sdn(dev_sdn),
+    _brd_led(brd_led)
 {
     /* Nothing to do */
     tr_debug("%s (%d)", __func__, __LINE__);
