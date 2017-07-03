@@ -37,6 +37,7 @@ static uint8_t stored_mac_address[8] = MBED_CONF_SPIRIT1_MAC_ADDRESS;
 static Thread rf_ack_sender(osPriorityRealtime);
 static volatile uint8_t rf_rx_sequence;
 static volatile bool rf_ack_sent = false;
+static volatile bool expecting_ack = false;
 
 /* MAC frame helper macros */
 #define MAC_FCF_FRAME_TYPE_MASK         0x0007
@@ -103,16 +104,13 @@ static int8_t rf_trigger_send(uint8_t *data_ptr, uint16_t data_length, uint8_t t
         /*Return busy*/
         return -1;
     } else {
-#ifdef HEAVY_TRACING
         uint16_t fcf = rf_read_16_bit(data_ptr);
-        uint16_t need_ack;
 
         /*Check if transmitted data needs to be acked*/
         if((fcf & MAC_FCF_ACK_REQ_BIT_MASK) >> MAC_FCF_ACK_REQ_BIT_SHIFT)
-            need_ack = 1;
+            expecting_ack = true;
         else
-            need_ack = 0;
-#endif
+            expecting_ack = false;
 
         /*Store the sequence number for ACK handling*/
         tx_sequence = *(data_ptr + 2);
@@ -121,8 +119,8 @@ static int8_t rf_trigger_send(uint8_t *data_ptr, uint16_t data_length, uint8_t t
         mac_tx_handle = tx_handle;
 
 #ifdef HEAVY_TRACING
-        tr_info("%s (%d), len=%d, tx_handle=%x, tx_seq=%x, need_ack=%d (%x:%x, %x:%x, %x:%x, %x:%x)", __func__, __LINE__,
-                data_length, tx_handle, tx_sequence, need_ack,
+        tr_info("%s (%d), len=%d, tx_handle=%x, tx_seq=%x, expecting_ack=%d (%x:%x, %x:%x, %x:%x, %x:%x)", __func__, __LINE__,
+                data_length, tx_handle, tx_sequence, expecting_ack,
                 data_ptr[3], data_ptr[4], data_ptr[5], data_ptr[6],
                 data_ptr[7], data_ptr[8], data_ptr[9], data_ptr[10]);
 #endif
@@ -289,7 +287,7 @@ static inline void rf_send_signal(int32_t signal) {
     rf_ack_sender.signal_set(signal);
 }
 
-static phy_link_tx_status_e phy_status;
+static volatile phy_link_tx_status_e phy_status;
 /* Note: we are in IRQ context */
 static void rf_handle_ack(uint8_t seq_number)
 {
@@ -309,6 +307,12 @@ static void rf_handle_ack(uint8_t seq_number)
 #ifdef HEAVY_TRACING
         tr_info("%s (%d)", __func__, __LINE__);
 #endif
+
+        /*Call PHY TX Done API*/
+        if(device_driver.phy_tx_done_cb){
+            phy_status = PHY_LINK_TX_FAIL;
+            rf_send_signal(RF_SIG_CB_TX_DONE);
+        }
     }
 }
 
@@ -493,14 +497,24 @@ static inline void rf_handle_rx_end(void)
     }
 
     /* If waiting for ACK, check here if the packet is an ACK to a message previously sent */
-    uint16_t fcf = rf_read_16_bit(rf_rx_buf);
-    if(((fcf & MAC_FCF_FRAME_TYPE_MASK) >> MAC_FCF_FRAME_TYPE_SHIFT) == FC_ACK_FRAME) {
-        /*Send sequence number in ACK handler*/
+    if(expecting_ack) {
+        uint16_t fcf = rf_read_16_bit(rf_rx_buf);
+        expecting_ack = false;
+
+        if(((fcf & MAC_FCF_FRAME_TYPE_MASK) >> MAC_FCF_FRAME_TYPE_SHIFT) == FC_ACK_FRAME) {
+            /*Send sequence number in ACK handler*/
 #ifdef HEAVY_TRACING
-        tr_debug("%s (%d), len=%u", __func__, __LINE__, (unsigned int)rf_buffer_len);
+            tr_debug("%s (%d), len=%u", __func__, __LINE__, (unsigned int)rf_buffer_len);
 #endif
-        rf_handle_ack(rf_rx_buf[2]);
-        return;
+            rf_handle_ack(rf_rx_buf[2]);
+            return;
+        } else {
+            /*Call PHY TX Done API*/
+            if(device_driver.phy_tx_done_cb){
+                phy_status = PHY_LINK_TX_FAIL;
+                rf_send_signal(RF_SIG_CB_TX_DONE);
+            }
+        }
     }
 
     /* Kick off ACK sending */
@@ -542,7 +556,7 @@ static inline void rf_handle_tx_end(void)
 
     /*Call PHY TX Done API*/
     if(device_driver.phy_tx_done_cb){
-        phy_status = PHY_LINK_TX_SUCCESS;
+        phy_status = expecting_ack ? PHY_LINK_TX_DONE_PENDING : PHY_LINK_TX_SUCCESS;
         rf_send_signal(RF_SIG_CB_TX_DONE);
     }
 }
@@ -551,6 +565,7 @@ static inline void rf_handle_tx_end(void)
 static inline void rf_handle_tx_err(void) {
     /*Call PHY TX Done API*/
     if(device_driver.phy_tx_done_cb){
+        expecting_ack = false;
         phy_status = PHY_LINK_TX_FAIL;
         rf_send_signal(RF_SIG_CB_TX_DONE);
     }
@@ -627,7 +642,7 @@ static void rf_ack_loop(void) {
             rf_ack_sent = true;
 
             /*Send the packet*/
-            rf_device->send((uint8_t*)buffer, 3);
+            rf_device->send((uint8_t*)buffer, 3, false);
 
 #ifdef HEAVY_TRACING
             tr_debug("%s (%d), hdr=%x, nr=%x", __func__, __LINE__, buffer[0], ptr[0]);

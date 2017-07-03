@@ -161,7 +161,7 @@ void SimpleSpirit1::init() {
 static volatile int tx_fifo_remaining = 0;     // to be used in irq handler
 static volatile int tx_buffer_pos = 0;         // to be used in irq handler
 const volatile uint8_t *tx_fifo_buffer = NULL; // to be used in irq handler
-int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
+int SimpleSpirit1::send(const void *payload, unsigned int payload_len, bool use_csma_ca) {
 	/* Checks if the payload length is supported */
 	if(payload_len > MAX_PACKET_LEN) {
 		return RADIO_TX_ERR;
@@ -187,7 +187,9 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 
 	pkt_basic_set_payload_length(payload_len); // set desired payload len
 
-	csma_ca_state(S_ENABLE); // enable CSMA/CA
+	if(use_csma_ca) {
+	    csma_ca_state(S_ENABLE); // enable CSMA/CA
+	}
 
 	/* Init buffer & number of bytes to be send */
 	tx_fifo_remaining = payload_len;
@@ -220,7 +222,9 @@ int SimpleSpirit1::send(const void *payload, unsigned int payload_len) {
 
 	_spirit_tx_started = false; // in case of state timeout
 
-	csma_ca_state(S_DISABLE); // disable CSMA/CA
+    if(use_csma_ca) {
+        csma_ca_state(S_DISABLE); // disable CSMA/CA
+    }
 
 	cmd_strobe(SPIRIT1_STROBE_RX); // Return to RX state
 

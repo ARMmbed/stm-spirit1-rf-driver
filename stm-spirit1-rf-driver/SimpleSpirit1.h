@@ -416,7 +416,7 @@ public:
     }
 
     /** Send a Buffer **/
-    int send(const void *payload, unsigned int payload_len);
+    int send(const void *payload, unsigned int payload_len, bool use_csma_ca = true);
 
     /** Read into Buffer **/
     int read(void *buf, unsigned int bufsize);
