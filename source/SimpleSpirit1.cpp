@@ -450,7 +450,10 @@ void SimpleSpirit1::IrqHandler() {
 	irq_get_status(&x_irq_status);
 
 	/* The IRQ_TX_DATA_SENT notifies the packet received. Puts the SPIRIT1 in RX */
-	if(x_irq_status.IRQ_TX_DATA_SENT) {
+	if(x_irq_status.IRQ_TX_DATA_SENT) { /* betzw - NOTE: MUST be handled before `IRQ_RX_DATA_READY` for Nanostack integration!
+	                                                     Logically, Nanostack only expects the "DONE" after "SUCCESS" (if it gets
+	                                                     DONE before SUCCESS, it assumes you're not going to bother to send SUCCESS).
+                                         */
 #ifdef DEBUG_IRQ
 		uint32_t *tmp = (uint32_t*)&x_irq_status;
 		debug_if(!_spirit_tx_started, "\n\rAssert failed in: %s (%d)\n\r", __func__, __LINE__);

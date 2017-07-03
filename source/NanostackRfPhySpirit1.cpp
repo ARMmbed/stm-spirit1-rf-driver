@@ -38,6 +38,7 @@ static Thread rf_ack_sender(osPriorityRealtime);
 static volatile uint8_t rf_rx_sequence;
 static volatile bool rf_ack_sent = false;
 static volatile bool expecting_ack = false;
+static volatile bool need_ack = false;
 
 /* MAC frame helper macros */
 #define MAC_FCF_FRAME_TYPE_MASK         0x0007
@@ -108,9 +109,9 @@ static int8_t rf_trigger_send(uint8_t *data_ptr, uint16_t data_length, uint8_t t
 
         /*Check if transmitted data needs to be acked*/
         if((fcf & MAC_FCF_ACK_REQ_BIT_MASK) >> MAC_FCF_ACK_REQ_BIT_SHIFT)
-            expecting_ack = true;
+            need_ack = true;
         else
-            expecting_ack = false;
+            need_ack = false;
 
         /*Store the sequence number for ACK handling*/
         tx_sequence = *(data_ptr + 2);
@@ -119,8 +120,8 @@ static int8_t rf_trigger_send(uint8_t *data_ptr, uint16_t data_length, uint8_t t
         mac_tx_handle = tx_handle;
 
 #ifdef HEAVY_TRACING
-        tr_info("%s (%d), len=%d, tx_handle=%x, tx_seq=%x, expecting_ack=%d (%x:%x, %x:%x, %x:%x, %x:%x)", __func__, __LINE__,
-                data_length, tx_handle, tx_sequence, expecting_ack,
+        tr_info("%s (%d), len=%d, tx_handle=%x, tx_seq=%x, need_ack=%d (%x:%x, %x:%x, %x:%x, %x:%x)", __func__, __LINE__,
+                data_length, tx_handle, tx_sequence, need_ack,
                 data_ptr[3], data_ptr[4], data_ptr[5], data_ptr[6],
                 data_ptr[7], data_ptr[8], data_ptr[9], data_ptr[10]);
 #endif
@@ -554,9 +555,15 @@ static inline void rf_handle_tx_end(void)
         return; // no need to inform stack
     }
 
+    /* Transform `need_ack` in `expecting_ack` */
+    if(need_ack) {
+        need_ack = false;
+        expecting_ack = true;
+    }
+
     /*Call PHY TX Done API*/
     if(device_driver.phy_tx_done_cb){
-        phy_status = expecting_ack ? PHY_LINK_TX_DONE_PENDING : PHY_LINK_TX_SUCCESS;
+        phy_status = PHY_LINK_TX_SUCCESS;
         rf_send_signal(RF_SIG_CB_TX_DONE);
     }
 }
@@ -565,7 +572,7 @@ static inline void rf_handle_tx_end(void)
 static inline void rf_handle_tx_err(void) {
     /*Call PHY TX Done API*/
     if(device_driver.phy_tx_done_cb){
-        expecting_ack = false;
+        need_ack = false;
         phy_status = PHY_LINK_TX_FAIL;
         rf_send_signal(RF_SIG_CB_TX_DONE);
     }
