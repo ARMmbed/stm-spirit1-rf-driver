@@ -146,7 +146,7 @@ void SimpleSpirit1::init() {
 			S_ENABLE,         // enable persistent mode
 			TBIT_TIME_64,     // Tcca time
 			TCCA_TIME_3,      // Lcca length
-			3,                // max nr of backoffs (<8)
+			5,                // max nr of backoffs (<8)
 			1,                // BU counter seed
 			8                 // BU prescaler
 	};
