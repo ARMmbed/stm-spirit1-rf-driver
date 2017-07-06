@@ -80,7 +80,7 @@ class SimpleSpirit1 {
     	set_ready_state();
 	    cmd_strobe(SPIRIT1_STROBE_RX);
 #ifdef DEBUG_IRQ
-	    debug("\n\r%s (%d)\n\r", __func__, __LINE__);
+	    debug("\r\n%s (%d)\r\n", __func__, __LINE__);
 #endif
     }
 
@@ -119,13 +119,13 @@ class SimpleSpirit1 {
     	_irq.disable_irq();
     	_nr_of_irq_disables++;
 #ifndef NDEBUG
-    	debug_if(_nr_of_irq_disables == 0, "\n\rassert failed in: %s (%d)\n\r", __func__, __LINE__);
+    	debug_if(_nr_of_irq_disables == 0, "\r\nassert failed in: %s (%d)\r\n", __func__, __LINE__);
 #endif
     }
 
     void enable_spirit_irq(void) {
 #ifndef NDEBUG
-    	debug_if(_nr_of_irq_disables == 0, "\n\rassert failed in: %s (%d)\n\r", __func__, __LINE__);
+    	debug_if(_nr_of_irq_disables == 0, "\r\nassert failed in: %s (%d)\r\n", __func__, __LINE__);
 #endif
     	if(--_nr_of_irq_disables == 0)
     		_irq.enable_irq();

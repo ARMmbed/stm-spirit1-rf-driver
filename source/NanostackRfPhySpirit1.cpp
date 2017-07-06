@@ -64,12 +64,12 @@ static volatile bool need_ack = false;
 #define FC_ACK_FRAME            0x02
 #define FC_CMD_FRAME            0x03
 
-static void rf_if_lock(void)
+static inline void rf_if_lock(void)
 {
     platform_enter_critical();
 }
 
-static void rf_if_unlock(void)
+static inline void rf_if_unlock(void)
 {
     platform_exit_critical();
 }
@@ -79,205 +79,6 @@ static inline uint16_t rf_read_16_bit(uint8_t *data_ptr) { // little-endian
 
     ret = ((uint16_t)data_ptr[0]) + (((uint16_t)data_ptr[1]) << 8);
     return ret;
-}
-
-static int8_t rf_trigger_send(uint8_t *data_ptr, uint16_t data_length, uint8_t tx_handle, data_protocol_e data_protocol)
-{
-#ifndef NDEBUG
-    debug_if(!(data_length >= 3), "\n\rassert failed in: %s (%d)\n\r", __func__, __LINE__);
-#endif
-
-    /* Give 'rf_ack_sender' a better chance to run */
-    Thread::yield();
-
-    /* Get Lock */
-    rf_if_lock();
-
-    /*Check if transmitter is busy*/
-    if(rf_device->is_receiving()) { /* betzw - WAS: (rf_device->channel_clear() != 0)), do NOT use this but rather study and enable automatic CCA */
-#ifdef HEAVY_TRACING
-        tr_debug("%s (%d)", __func__, __LINE__);
-#endif
-
-        /* Release Lock */
-        rf_if_unlock();
-
-        /*Return busy*/
-        return -1;
-    } else {
-        uint16_t fcf = rf_read_16_bit(data_ptr);
-
-        /*Check if transmitted data needs to be acked*/
-        if((fcf & MAC_FCF_ACK_REQ_BIT_MASK) >> MAC_FCF_ACK_REQ_BIT_SHIFT)
-            need_ack = true;
-        else
-            need_ack = false;
-
-        /*Store the sequence number for ACK handling*/
-        tx_sequence = *(data_ptr + 2);
-
-        /*Store TX handle*/
-        mac_tx_handle = tx_handle;
-
-#ifdef HEAVY_TRACING
-        tr_info("%s (%d), len=%d, tx_handle=%x, tx_seq=%x, need_ack=%d (%x:%x, %x:%x, %x:%x, %x:%x)", __func__, __LINE__,
-                data_length, tx_handle, tx_sequence, need_ack,
-                data_ptr[3], data_ptr[4], data_ptr[5], data_ptr[6],
-                data_ptr[7], data_ptr[8], data_ptr[9], data_ptr[10]);
-#endif
-
-        /*Send the packet*/
-        rf_device->send(data_ptr, data_length);
-
-        /* Release Lock */
-        rf_if_unlock();
-    }
-
-    /*Return success*/
-    return 0;
-}
-
-static int8_t rf_interface_state_control(phy_interface_state_e new_state, uint8_t rf_channel)
-{
-    int8_t ret_val = 0;
-    switch (new_state)
-    {
-        /*Reset PHY driver and set to idle*/
-        case PHY_INTERFACE_RESET:
-            tr_debug("%s (%d)", __func__, __LINE__);
-            rf_device->reset_board();
-            break;
-            /*Disable PHY Interface driver*/
-        case PHY_INTERFACE_DOWN:
-            tr_debug("%s (%d)", __func__, __LINE__);
-            ret_val = rf_device->off();
-            if(ret_val != 0) ret_val = -1;
-            break;
-            /*Enable PHY Interface driver*/
-        case PHY_INTERFACE_UP:
-            ret_val = rf_device->on();
-            if(ret_val != 0) {
-                tr_debug("%s (%d)", __func__, __LINE__);
-                ret_val = -1;
-                break;
-            }
-            tr_debug("%s (%d) - channel: %d", __func__, __LINE__, (int)rf_channel);
-            rf_device->set_channel(rf_channel);
-            break;
-            /*Enable wireless interface ED scan mode*/
-        case PHY_INTERFACE_RX_ENERGY_STATE:
-            tr_debug("%s (%d)", __func__, __LINE__);
-            break;
-            /*Enable Sniffer state*/
-        case PHY_INTERFACE_SNIFFER_STATE:
-            // TODO - if we really need this - WAS: rf_setup_sniffer(rf_channel);
-            tr_debug("%s (%d)", __func__, __LINE__);
-            ret_val = -1;
-            break;
-        default:
-            tr_debug("%s (%d)", __func__, __LINE__);
-            break;
-    }
-    return ret_val;
-}
-
-static int8_t rf_extension(phy_extension_type_e extension_type, uint8_t *data_ptr)
-{
-    switch (extension_type)
-    {
-        /*Control MAC pending bit for Indirect data transmission*/
-        case PHY_EXTENSION_CTRL_PENDING_BIT:
-            tr_debug("%s (%d)", __func__, __LINE__);
-            break;
-
-            /*Return frame pending status*/
-        case PHY_EXTENSION_READ_LAST_ACK_PENDING_STATUS:
-            tr_debug("%s (%d)", __func__, __LINE__);
-            *data_ptr = 0;
-            break;
-
-            /*Set channel, used for setting channel for energy scan*/
-        case PHY_EXTENSION_SET_CHANNEL:
-            tr_debug("%s (%d)", __func__, __LINE__);
-            break;
-
-            /*Read energy on the channel*/
-        case PHY_EXTENSION_READ_CHANNEL_ENERGY:
-            // TODO: *data_ptr = rf_get_channel_energy();
-            tr_debug("%s (%d)", __func__, __LINE__);
-            *data_ptr = (int8_t)rf_device->get_last_rssi_dbm();
-            break;
-
-            /*Read status of the link*/
-        case PHY_EXTENSION_READ_LINK_STATUS:
-            // TODO: *data_ptr = rf_get_link_status();
-            tr_debug("%s (%d)", __func__, __LINE__);
-            *data_ptr = rf_device->get_last_sqi(); // use SQI as link quality
-            break;
-
-        default:
-            tr_debug("%s (%d)", __func__, __LINE__);
-            break;
-    }
-    return 0;
-}
-
-static inline void rf_set_mac_address(uint8_t *ptr) {
-    tr_debug("%s (%d), adr0=%x, adr1=%x, adr2=%x, adr3=%x, adr4=%x, adr5=%x, adr6=%x, adr7=%x",
-             __func__, __LINE__,
-             ptr[0], ptr[1], ptr[2], ptr[3], ptr[4], ptr[5], ptr[6], ptr[7]);
-    for(int i = 0; i < 8; i++) {
-        stored_mac_address[i] = ptr[i];
-    }
-}
-
-static inline void rf_get_mac_address(uint8_t *ptr) {
-    for(int i = 0; i < 8; i++) {
-        ptr[i] = stored_mac_address[i];
-    }
-    tr_debug("%s (%d), adr0=%x, adr1=%x, adr2=%x, adr3=%x, adr4=%x, adr5=%x, adr6=%x, adr7=%x",
-             __func__, __LINE__,
-             ptr[0], ptr[1], ptr[2], ptr[3], ptr[4], ptr[5], ptr[6], ptr[7]);
-}
-
-static inline void rf_set_short_adr(uint8_t *ptr) {
-    stored_short_adr = (ptr[0] << 8) + ptr[1]; // big-endian
-    tr_debug("%s (%d), adr0=%x, adr1=%x, val=%d",
-             __func__, __LINE__,
-             ptr[0], ptr[1], stored_short_adr);
-}
-
-static inline void rf_set_pan_id(uint8_t *ptr) {
-    stored_pan_id = (ptr[0] << 8) + ptr[1]; // big-endian
-    tr_debug("%s (%d), adr0=%x, adr1=%x, val=%d",
-            __func__, __LINE__,
-            ptr[0], ptr[1], stored_pan_id);
-}
-
-static int8_t rf_address_write(phy_address_type_e address_type, uint8_t *address_ptr)
-{
-    switch (address_type)
-    {
-        /*Set 48-bit address*/
-        case PHY_MAC_48BIT:
-            /* Not used in this example */
-            // betzw - WAS: rf_set_mac_48bit(address_ptr);
-            break;
-            /*Set 64-bit address*/
-        case PHY_MAC_64BIT:
-            rf_set_mac_address(address_ptr);
-            break;
-            /*Set 16-bit address*/
-        case PHY_MAC_16BIT:
-            rf_set_short_adr(address_ptr);
-            break;
-            /*Set PAN Id*/
-        case PHY_MAC_PANID:
-            rf_set_pan_id(address_ptr);
-            break;
-    }
-
-    return 0;
 }
 
 /* Note: we are in IRQ context */
@@ -568,12 +369,12 @@ static inline void rf_handle_tx_end(void)
     }
 }
 
-/* Note: we are in IRQ context */
-static inline void rf_handle_tx_err(void) {
+/* Note: we might be in IRQ context */
+static inline void rf_handle_tx_err(phy_link_tx_status_e phy_val = PHY_LINK_TX_FAIL) {
     /*Call PHY TX Done API*/
     if(device_driver.phy_tx_done_cb){
         need_ack = false;
-        phy_status = PHY_LINK_TX_FAIL;
+        phy_status = phy_val;
         rf_send_signal(RF_SIG_CB_TX_DONE);
     }
 }
@@ -594,6 +395,208 @@ static void rf_callback_func(int event) {
             rf_handle_tx_err();
             break;
     }
+}
+
+static int8_t rf_trigger_send(uint8_t *data_ptr, uint16_t data_length, uint8_t tx_handle, data_protocol_e data_protocol)
+{
+#ifndef NDEBUG
+    debug_if(!(data_length >= 3), "\r\nassert failed in: %s (%d)\r\n", __func__, __LINE__);
+#endif
+
+    /* Give 'rf_ack_sender' a better chance to run */
+    Thread::yield();
+
+    /* Get Lock */
+    rf_if_lock();
+
+    /*Check if transmitter is busy*/
+    if(rf_device->is_receiving()) { /* betzw - WAS: (rf_device->channel_clear() != 0)), do NOT use this but rather study and enable automatic CCA */
+#ifdef HEAVY_TRACING
+        tr_debug("%s (%d)", __func__, __LINE__);
+#endif
+
+        /* Release Lock */
+        rf_if_unlock();
+
+        /*Return busy*/
+        return -1;
+    } else {
+        uint16_t fcf = rf_read_16_bit(data_ptr);
+
+        /*Check if transmitted data needs to be acked*/
+        if((fcf & MAC_FCF_ACK_REQ_BIT_MASK) >> MAC_FCF_ACK_REQ_BIT_SHIFT)
+            need_ack = true;
+        else
+            need_ack = false;
+
+        /*Store the sequence number for ACK handling*/
+        tx_sequence = *(data_ptr + 2);
+
+        /*Store TX handle*/
+        mac_tx_handle = tx_handle;
+
+#ifdef HEAVY_TRACING
+        tr_info("%s (%d), len=%d, tx_handle=%x, tx_seq=%x, need_ack=%d (%x:%x, %x:%x, %x:%x, %x:%x)", __func__, __LINE__,
+                data_length, tx_handle, tx_sequence, need_ack,
+                data_ptr[3], data_ptr[4], data_ptr[5], data_ptr[6],
+                data_ptr[7], data_ptr[8], data_ptr[9], data_ptr[10]);
+#endif
+
+        /*Send the packet*/
+        int ret = rf_device->send(data_ptr, data_length);
+        if(ret != RADIO_TX_OK) {
+            rf_handle_tx_err(PHY_LINK_CCA_FAIL);
+        }
+
+        /* Release Lock */
+        rf_if_unlock();
+    }
+
+    /*Return success*/
+    return 0;
+}
+
+static int8_t rf_interface_state_control(phy_interface_state_e new_state, uint8_t rf_channel)
+{
+    int8_t ret_val = 0;
+    switch (new_state)
+    {
+        /*Reset PHY driver and set to idle*/
+        case PHY_INTERFACE_RESET:
+            tr_debug("%s (%d)", __func__, __LINE__);
+            rf_device->reset_board();
+            break;
+            /*Disable PHY Interface driver*/
+        case PHY_INTERFACE_DOWN:
+            tr_debug("%s (%d)", __func__, __LINE__);
+            ret_val = rf_device->off();
+            if(ret_val != 0) ret_val = -1;
+            break;
+            /*Enable PHY Interface driver*/
+        case PHY_INTERFACE_UP:
+            ret_val = rf_device->on();
+            if(ret_val != 0) {
+                tr_debug("%s (%d)", __func__, __LINE__);
+                ret_val = -1;
+                break;
+            }
+            tr_debug("%s (%d) - channel: %d", __func__, __LINE__, (int)rf_channel);
+            rf_device->set_channel(rf_channel);
+            break;
+            /*Enable wireless interface ED scan mode*/
+        case PHY_INTERFACE_RX_ENERGY_STATE:
+            tr_debug("%s (%d)", __func__, __LINE__);
+            break;
+            /*Enable Sniffer state*/
+        case PHY_INTERFACE_SNIFFER_STATE:
+            // TODO - if we really need this - WAS: rf_setup_sniffer(rf_channel);
+            tr_debug("%s (%d)", __func__, __LINE__);
+            ret_val = -1;
+            break;
+        default:
+            tr_debug("%s (%d)", __func__, __LINE__);
+            break;
+    }
+    return ret_val;
+}
+
+static int8_t rf_extension(phy_extension_type_e extension_type, uint8_t *data_ptr)
+{
+    switch (extension_type)
+    {
+        /*Control MAC pending bit for Indirect data transmission*/
+        case PHY_EXTENSION_CTRL_PENDING_BIT:
+            tr_debug("%s (%d)", __func__, __LINE__);
+            break;
+
+            /*Return frame pending status*/
+        case PHY_EXTENSION_READ_LAST_ACK_PENDING_STATUS:
+            tr_debug("%s (%d)", __func__, __LINE__);
+            *data_ptr = 0;
+            break;
+
+            /*Set channel, used for setting channel for energy scan*/
+        case PHY_EXTENSION_SET_CHANNEL:
+            tr_debug("%s (%d)", __func__, __LINE__);
+            break;
+
+            /*Read energy on the channel*/
+        case PHY_EXTENSION_READ_CHANNEL_ENERGY:
+            // TODO: *data_ptr = rf_get_channel_energy();
+            tr_debug("%s (%d)", __func__, __LINE__);
+            *data_ptr = (int8_t)rf_device->get_last_rssi_dbm();
+            break;
+
+            /*Read status of the link*/
+        case PHY_EXTENSION_READ_LINK_STATUS:
+            // TODO: *data_ptr = rf_get_link_status();
+            tr_debug("%s (%d)", __func__, __LINE__);
+            *data_ptr = rf_device->get_last_sqi(); // use SQI as link quality
+            break;
+
+        default:
+            tr_debug("%s (%d)", __func__, __LINE__);
+            break;
+    }
+    return 0;
+}
+
+static inline void rf_set_mac_address(uint8_t *ptr) {
+    tr_debug("%s (%d), adr0=%x, adr1=%x, adr2=%x, adr3=%x, adr4=%x, adr5=%x, adr6=%x, adr7=%x",
+             __func__, __LINE__,
+             ptr[0], ptr[1], ptr[2], ptr[3], ptr[4], ptr[5], ptr[6], ptr[7]);
+    for(int i = 0; i < 8; i++) {
+        stored_mac_address[i] = ptr[i];
+    }
+}
+
+static inline void rf_get_mac_address(uint8_t *ptr) {
+    for(int i = 0; i < 8; i++) {
+        ptr[i] = stored_mac_address[i];
+    }
+    tr_debug("%s (%d), adr0=%x, adr1=%x, adr2=%x, adr3=%x, adr4=%x, adr5=%x, adr6=%x, adr7=%x",
+             __func__, __LINE__,
+             ptr[0], ptr[1], ptr[2], ptr[3], ptr[4], ptr[5], ptr[6], ptr[7]);
+}
+
+static inline void rf_set_short_adr(uint8_t *ptr) {
+    stored_short_adr = (ptr[0] << 8) + ptr[1]; // big-endian
+    tr_debug("%s (%d), adr0=%x, adr1=%x, val=%d",
+             __func__, __LINE__,
+             ptr[0], ptr[1], stored_short_adr);
+}
+
+static inline void rf_set_pan_id(uint8_t *ptr) {
+    stored_pan_id = (ptr[0] << 8) + ptr[1]; // big-endian
+    tr_debug("%s (%d), adr0=%x, adr1=%x, val=%d",
+            __func__, __LINE__,
+            ptr[0], ptr[1], stored_pan_id);
+}
+
+static int8_t rf_address_write(phy_address_type_e address_type, uint8_t *address_ptr)
+{
+    switch (address_type)
+    {
+        /*Set 48-bit address*/
+        case PHY_MAC_48BIT:
+            /* Not used in this example */
+            // betzw - WAS: rf_set_mac_48bit(address_ptr);
+            break;
+            /*Set 64-bit address*/
+        case PHY_MAC_64BIT:
+            rf_set_mac_address(address_ptr);
+            break;
+            /*Set 16-bit address*/
+        case PHY_MAC_16BIT:
+            rf_set_short_adr(address_ptr);
+            break;
+            /*Set PAN Id*/
+        case PHY_MAC_PANID:
+            rf_set_pan_id(address_ptr);
+            break;
+    }
+
+    return 0;
 }
 
 static void rf_ack_loop(void) {
@@ -657,7 +660,8 @@ static void rf_ack_loop(void) {
         }
 
         if(signals & RF_SIG_CB_TX_DONE) {
-            device_driver.phy_tx_done_cb(rf_radio_driver_id, mac_tx_handle, phy_status, 0, 0);
+            device_driver.phy_tx_done_cb(rf_radio_driver_id, mac_tx_handle, phy_status,
+                                         (phy_status == PHY_LINK_CCA_FAIL) ? 0xFF : 0, 0);
 #ifdef HEAVY_TRACING
             tr_debug("%s (%d)", __func__, __LINE__);
 #endif
@@ -694,7 +698,7 @@ void NanostackRfPhySpirit1::rf_init(void) {
                 rf_ack_sender.start(rf_ack_loop);
 
 #ifndef NDEBUG
-        debug_if(!(ret == osOK), "\n\rassert failed in: %s (%d)\n\r", __func__, __LINE__);
+        debug_if(!(ret == osOK), "\r\nassert failed in: %s (%d)\r\n", __func__, __LINE__);
 #endif
     }
 }
