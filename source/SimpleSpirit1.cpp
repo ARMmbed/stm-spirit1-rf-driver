@@ -449,7 +449,7 @@ void SimpleSpirit1::IrqHandler() {
 	/* get interrupt source from radio */
 	irq_get_status(&x_irq_status);
 
-	/* The IRQ_TX_DATA_SENT notifies the packet received. Puts the SPIRIT1 in RX */
+	/* The IRQ_TX_DATA_SENT notifies the packet has been sent. Puts the SPIRIT1 in RX */
 	if(x_irq_status.IRQ_TX_DATA_SENT) { /* betzw - NOTE: MUST be handled before `IRQ_RX_DATA_READY` for Nanostack integration!
 	                                                     Logically, Nanostack only expects the "DONE" after "SUCCESS" (if it gets
 	                                                     DONE before SUCCESS, it assumes you're not going to bother to send SUCCESS).
@@ -496,7 +496,7 @@ void SimpleSpirit1::IrqHandler() {
 	}
 #endif // !RX_FIFO_THR_WA
 
-	/* Transmission error */
+	/* TX FIFO underflow/overflow error */
 	if(x_irq_status.IRQ_TX_FIFO_ERROR) {
 #ifdef DEBUG_IRQ
 		uint32_t *tmp = (uint32_t*)&x_irq_status;
