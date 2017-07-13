@@ -9,10 +9,20 @@ static uint16_t last_state;
 
 #define XO_ON                   (0x1)
 
-#define BUSYWAIT_UNTIL(cond, millisecs)                                        					\
-        do {                                                                 					 		\
-            uint32_t start = us_ticker_read();                         							\
-            while (!(cond) && ((us_ticker_read() - start) < ((uint32_t)millisecs)*1000U));	\
+#define BUSYWAIT_UNTIL(cond, millisecs) \
+        do { \
+            uint32_t start = us_ticker_read(); \
+            uint32_t limit = (uint32_t)millisecs*1000U; \
+            \
+            while (!(cond)) { \
+                uint32_t now = us_ticker_read(); \
+                \
+                if(now >= start) { \
+                    if((now - start) > limit) break; \
+                } else { \
+                    if((now + ~start) > limit) break; \
+                } \
+            } \
         } while(0)
 
 #define st_lib_spirit_irqs		SpiritIrqs
