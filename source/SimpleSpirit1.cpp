@@ -13,15 +13,9 @@ static uint16_t last_state;
         do { \
             uint32_t start = us_ticker_read(); \
             uint32_t limit = (uint32_t)millisecs*1000U; \
-            \
             while (!(cond)) { \
                 uint32_t now = us_ticker_read(); \
-                \
-                if(now >= start) { \
-                    if((now - start) > limit) break; \
-                } else { \
-                    if((now + ~start) > limit) break; \
-                } \
+                if((now - start) > limit) break; \
             } \
         } while(0)
 
