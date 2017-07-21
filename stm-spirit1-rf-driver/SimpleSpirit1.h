@@ -35,6 +35,11 @@
 #define OFF    1
 
 
+/*** Macros for Spirit1 API ***/
+/* max payload */
+#define SPIRIT1_MAX_PAYLOAD     (MAX_PACKET_LEN)
+
+
 /*** Missing Cube External Declarations ***/
 extern "C" void SpiritManagementSetFrequencyBase(uint32_t);
 
@@ -373,6 +378,18 @@ public:
 		TX_ERR
     };
 
+    /** Create singleton instance of 'SimpleSpirit1'
+     *
+     * @param mosi 'PinName' of mosi pin to use
+     * @param miso 'PinName' of miso pin to use
+     * @param sclk 'PinName' of clock pin to use
+     * @param irq  'PinName' of interrupt pin to use
+     * @param cs   'PinName' of chip-select pin pin to use
+     * @param sdn  'PinName' of pin to use for device shutdown
+     *
+     * @returns     reference to singleton instance
+     *
+     */
     static SimpleSpirit1& CreateInstance(PinName mosi, PinName miso, PinName sclk,
     		PinName irq, PinName cs, PinName sdn,
 			PinName led = NC) {
@@ -388,6 +405,18 @@ public:
     	return *_singleton;
     }
 
+    /** Create singleton instance of 'SimpleSpirit1'
+     *
+     * @param mosi 'PinName' of mosi pin to use
+     * @param miso 'PinName' of miso pin to use
+     * @param sclk 'PinName' of clock pin to use
+     * @param irq  'PinName' of interrupt pin to use
+     * @param cs   'PinName' of chip-select pin pin to use
+     * @param sdn  'PinName' of pin to use for device shutdown
+     *
+     * @returns     reference to singleton instance
+     *
+     */
     static SimpleSpirit1& Instance() {
     	if(_singleton == NULL) {
     		error("SimpleSpirit1 must be created before used!\n");
@@ -396,52 +425,89 @@ public:
     	return *_singleton;
     }
 
-    /** Attach a function to be called by the Spirit Irq handler when packet has arrived
+    /** Attach a function to be called by the Spirit Irq handler when an event has occurred
      *
-     *  @param func A void() callback, or 0 to set as none
+     *  @param func A void(int) callback, or 0 to set as none
      *
      *  @note  Function 'func' will be executed in interrupt context!
+     *  @note  Function 'func' will be call with either 'RX_DONE', 'TX_DONE', or 'TX_ERR' as parameter
+     *         to indicate which event has occurred.
+     *
      */
     void attach_irq_callback(Callback<void(int)> func) {
     	_current_irq_callback = func;
     }
 
-    /** Switch Radio On/Off **/
+    /** Switch Radio On
+     *
+     */
     int on(void);
+    /** Switch Radio Off
+     *
+     */
     int off(void);
 
-    /** Set Channel **/
+    /** Set Channel
+     */
     void set_channel(uint8_t channel) {
     	SpiritRadioSetChannel(channel);
     }
 
-    /** Send a Buffer **/
+    /** Send a Buffer
+     *
+     * @param payload       pointer to buffer to be send
+     * @param payload_len   length of payload buffer in bytes
+     * @param use_csma_ca   should CSMA/CA be enabled for transmission
+     *
+     * @returns             zero in case of success, non-zero error code otherwise
+     *
+     * @note                the maximum payload size in bytes allowed is defined by macro 'SPIRIT1_MAX_PAYLOAD'
+     *
+     */
     int send(const void *payload, unsigned int payload_len, bool use_csma_ca = true);
 
-    /** Read into Buffer **/
+    /** Copy received data into buffer
+     *
+     * @param buf       pointer to buffer to be filled
+     * @param bufsize   size of buffer
+     *
+     * @returns         number of bytes copied into the buffer
+     *
+     * @note            the buffer should be (at least) of size 'SPIRIT1_MAX_PAYLOAD' (in bytes).
+     *
+     */
     int read(void *buf, unsigned int bufsize);
 
-    /** Perform a Clear-Channel Assessment (CCA) to find out if there is
-        a packet in the air or not.
-        Returns 1 if packet has been seen.
-      */
+    /** Perform a Clear-Channel Assessment (CCA) to find out if there is a packet in the air or not.
+     *
+     * @returns  1 if packet has been seen.
+     *
+     */
     int channel_clear(void);
 
-    /** Check if the radio driver has just received a packet **/
+    /** Check if the radio driver has just received a packet
+     *
+     */
     int get_pending_packet(void);
 
-    /** Is radio currently receiving **/
+    /** Is radio currently receiving
+     *
+     */
     bool is_receiving(void) {
     	return _is_receiving;
     }
 
-    /** Get latest value of RSSI (in dBm) **/
+    /** Get latest value of RSSI (in dBm)
+     *
+     */
     float get_last_rssi_dbm(void) {
     	get_last_rssi_raw();
 		return (-120.0+((float)(last_rssi-20))/2);
     }
 
-    /** Get latest value of RSSI (as Spirit1 raw value) **/
+    /** Get latest value of RSSI (as Spirit1 raw value)
+     *
+     */
     uint8_t get_last_rssi_raw(void) {
     	if(last_rssi == 0) {
     		last_rssi = qi_get_rssi();
@@ -449,7 +515,9 @@ public:
     	return last_rssi;
     }
 
-    /** Get latest value of LQI (scaled to 8-bit) **/
+    /** Get latest value of LQI (scaled to 8-bit)
+     *
+     */
     uint8_t get_last_sqi(void) {
     	const uint8_t max_sqi = 8 * ((SYNC_LENGTH>>1)+1);
     	if(last_sqi == 0) {
@@ -460,7 +528,9 @@ public:
     	return (last_sqi * 255 / max_sqi);
     }
 
-    /** Reset Board **/
+    /** Reset Board
+     *
+     */
     void reset_board() {
     	init();
     }
