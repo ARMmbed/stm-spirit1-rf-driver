@@ -67,7 +67,7 @@ public:
  * #include "mbed.h"
  * #include "SimpleSpirit1.h"
  *
- * static char *send_buf = "Hello World!";
+ * static char send_buf[] = "Hello World!";
  *
  * static SimpleSpirit1 &myspirit = SimpleSpirit1::CreateInstance(D11, D12, D3, D9, D10, D2);
  *
@@ -82,6 +82,7 @@ public:
  *
  * int main()
  * {
+ *   myspirit.attach_irq_callback(callback_func);
  *   myspirit.on();
  *
  *   while(1)
