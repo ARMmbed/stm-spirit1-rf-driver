@@ -91,7 +91,13 @@ void spirit1_interrupt_callback(void);
 
 /* Exported constants --------------------------------------------------------*/
 
-/*  Radio configuration parameters  */
+/* Radio configuration parameters  */
+/* General Remarks:
+ * Two SPSGRF modules will only communicate when both are having same frequency , same channel number,
+ * same modulation scheme, same data rate, etc.
+ * For example, the SPSGRF-915 module supports frequencies 902 to 928 MHz. User can select any frequency
+ * between this band.
+ */
 #define XTAL_OFFSET_PPM             0
 #define INFINITE_TIMEOUT            0.0
 
@@ -104,8 +110,7 @@ void spirit1_interrupt_callback(void);
 #endif
 
 #ifdef USE_SPIRIT1_915MHz
-//#define BASE_FREQUENCY              915.0e6
-#define BASE_FREQUENCY              902.0e6
+#define BASE_FREQUENCY              915.0e6
 #endif
 
 
