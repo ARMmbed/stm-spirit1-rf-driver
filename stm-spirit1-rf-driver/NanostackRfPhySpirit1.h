@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#ifdef MBED_CONF_NANOSTACK_CONFIGURATION
+
 #include "NanostackRfPhy.h"
 #include "PinNames.h"
 
@@ -51,4 +53,5 @@ private:
     const PinName _brd_led;
 };
 
+#endif /* MBED_CONF_NANOSTACK_CONFIGURATION */
 #endif /* NANOSTACK_RF_PHY_SPIRIT1_H_ */
