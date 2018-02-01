@@ -52,7 +52,7 @@ extern "C" {
 // #include "stm32f4xx_hal.h"
 #endif
 #include "SPIRIT_Config.h"
-#include "radio_spi.h" 
+// #include "radio_spi.h"
 // #include "spirit1-arch.h"
 
 /**
