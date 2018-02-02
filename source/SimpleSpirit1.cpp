@@ -131,7 +131,6 @@ void SimpleSpirit1::init() {
     radio_afc_freeze_on_sync(S_ENABLE);
     calibration_rco(S_ENABLE);
 
-    spirit_on = OFF;
     CLEAR_TXBUF();
     CLEAR_RXBUF();
     _spirit_tx_started = false;
@@ -378,6 +377,7 @@ int SimpleSpirit1::read(void *buf, unsigned int bufsize)
 
 }
 
+/* betzw - TODO: CCA should be reviewed (completely)! */
 int SimpleSpirit1::channel_clear(void)
 {
     float rssi_value;
@@ -407,228 +407,232 @@ int SimpleSpirit1::channel_clear(void)
     enable_spirit_irq();
 
     /* Puts the SPIRIT1 in its previous state */
-    if(spirit_state==OFF) {
+    if(spirit_state == OFF) {
         off();
+
 #ifndef NDEBUG
 #ifdef USE_STANDBY_STATE
         if(SPIRIT1_STATUS() != SPIRIT1_STATE_STANDBY) {
-#else
-            if(SPIRIT1_STATUS() != SPIRIT1_STATE_READY) {
-#endif
-                debug("\r\nAssert failed in: %s (%d): state=%x\r\n", __func__, __LINE__, last_state>>1);
-            }
-#endif
-        } else {
-            disable_spirit_irq();
+            debug("\r\nAssert failed in: %s (%d): state=%x\r\n", __func__, __LINE__, last_state>>1);
+        }
+#else // !USE_STANDBY_STATE
+        if(SPIRIT1_STATUS() != SPIRIT1_STATE_READY) {
+            debug("\r\nAssert failed in: %s (%d): state=%x\r\n", __func__, __LINE__, last_state>>1);
+        }
+#endif // !USE_STANDBY_STATE
+#endif // NDEBUG
+    } else { // spirit_state != OFF
+        disable_spirit_irq();
 
-            set_ready_state();
+        set_ready_state();
 
-            cmd_strobe(SPIRIT1_STROBE_RX);
-            BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, STATE_TIMEOUT);
-            if((last_state & SPIRIT1_STATE_STATEBITS) != SPIRIT1_STATE_RX) {
-                error("\r\nSpirit1: (#2) failed to enter rx (%x) => retry\r\n", last_state>>1);
-            }
+        cmd_strobe(SPIRIT1_STROBE_RX);
+        BUSYWAIT_UNTIL(SPIRIT1_STATUS() == SPIRIT1_STATE_RX, STATE_TIMEOUT);
+        if((last_state & SPIRIT1_STATE_STATEBITS) != SPIRIT1_STATE_RX) {
+            error("\r\nSpirit1: (#2) failed to enter rx (%x) => retry\r\n", last_state>>1);
+        }
 
-            enable_spirit_irq();
+        enable_spirit_irq();
 
 #ifndef NDEBUG
-            if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX) {
-                debug("\r\nAssert failed in: %s (%d): state=%x\r\n", __func__, __LINE__, last_state>>1);
-            }
+        if(SPIRIT1_STATUS() != SPIRIT1_STATE_RX) {
+            debug("\r\nAssert failed in: %s (%d): state=%x\r\n", __func__, __LINE__, last_state>>1);
+        }
 #endif
-        }
-
-        /* Checks the RSSI value with the threshold */
-        if(rssi_value<CCA_THRESHOLD) {
-            return 0;
-        } else {
-            return 1;
-        }
     }
 
-    int SimpleSpirit1::get_pending_packet(void)
-    {
-        return !IS_RXBUF_EMPTY();
+    /* If the received signal strength is above a certain level the medium is considered busy! */
+    /* Compare RSSI value with threshold */
+    if(rssi_value < CCA_THRESHOLD) {
+        return 0; // idle
+    } else {
+        return 1; // busy
     }
+}
 
-    /** Spirit Irq Callback **/
-    /* betzw - TODO: use threaded interrupt handling when `MBED_CONF_RTOS_PRESENT` is defined (see `atmel-rf-driver`) */
-    void SimpleSpirit1::IrqHandler() {
-        st_lib_spirit_irqs x_irq_status;
+int SimpleSpirit1::get_pending_packet(void)
+{
+    return !IS_RXBUF_EMPTY();
+}
 
-        /* get interrupt source from radio */
-        irq_get_status(&x_irq_status);
+/** Spirit Irq Callback **/
+/* betzw - TODO: use threaded interrupt handling when `MBED_CONF_RTOS_PRESENT` is defined (see `atmel-rf-driver`) */
+void SimpleSpirit1::IrqHandler() {
+    st_lib_spirit_irqs x_irq_status;
 
-        /* The IRQ_TX_DATA_SENT notifies the packet has been sent. Puts the SPIRIT1 in RX */
-        if(x_irq_status.IRQ_TX_DATA_SENT) { /* betzw - NOTE: MUST be handled before `IRQ_RX_DATA_READY` for Nanostack integration!
+    /* get interrupt source from radio */
+    irq_get_status(&x_irq_status);
+
+    /* The IRQ_TX_DATA_SENT notifies the packet has been sent. Puts the SPIRIT1 in RX */
+    if(x_irq_status.IRQ_TX_DATA_SENT) { /* betzw - NOTE: MUST be handled before `IRQ_RX_DATA_READY` for Nanostack integration!
 	                                                     Logically, Nanostack only expects the "DONE" after "SUCCESS" (if it gets
 	                                                     DONE before SUCCESS, it assumes you're not going to bother to send SUCCESS).
-         */
+     */
 #ifdef DEBUG_IRQ
-            uint32_t *tmp = (uint32_t*)&x_irq_status;
-            debug_if(!((*tmp) & IRQ_TX_DATA_SENT_MASK), "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
-            debug_if(tx_fifo_remaining != 0, "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
+        uint32_t *tmp = (uint32_t*)&x_irq_status;
+        debug_if(!((*tmp) & IRQ_TX_DATA_SENT_MASK), "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
+        debug_if(tx_fifo_remaining != 0, "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
 #endif
 
-            if(_spirit_tx_started) {
-                _spirit_tx_started = false;
+        if(_spirit_tx_started) {
+            _spirit_tx_started = false;
 
-                /* call user callback */
-                if(_current_irq_callback) {
-                    _current_irq_callback(TX_DONE);
-                }
+            /* call user callback */
+            if(_current_irq_callback) {
+                _current_irq_callback(TX_DONE);
             }
-
-            /* Disable handling of other TX flags */
-            x_irq_status.IRQ_TX_FIFO_ALMOST_EMPTY = S_RESET;
-            tx_fifo_buffer = NULL;
         }
+
+        /* Disable handling of other TX flags */
+        x_irq_status.IRQ_TX_FIFO_ALMOST_EMPTY = S_RESET;
+        tx_fifo_buffer = NULL;
+    }
 
 #ifndef RX_FIFO_THR_WA
-        /* The IRQ_TX_FIFO_ALMOST_EMPTY notifies an nearly empty TX fifo */
-        if(x_irq_status.IRQ_TX_FIFO_ALMOST_EMPTY) {
+    /* The IRQ_TX_FIFO_ALMOST_EMPTY notifies an nearly empty TX fifo */
+    if(x_irq_status.IRQ_TX_FIFO_ALMOST_EMPTY) {
 #ifdef DEBUG_IRQ
-            uint32_t *tmp = (uint32_t*)&x_irq_status;
-            debug_if(!((*tmp) & IRQ_TX_FIFO_ALMOST_EMPTY_MASK), "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
-            debug_if(!_spirit_tx_started, "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
-            debug_if(tx_fifo_buffer == NULL, "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
+        uint32_t *tmp = (uint32_t*)&x_irq_status;
+        debug_if(!((*tmp) & IRQ_TX_FIFO_ALMOST_EMPTY_MASK), "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
+        debug_if(!_spirit_tx_started, "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
+        debug_if(tx_fifo_buffer == NULL, "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
 #endif
 
-            int8_t fifo_available = SPIRIT_MAX_FIFO_LEN/2; // fill-up half fifo
-            int8_t to_send = (tx_fifo_remaining > fifo_available) ? fifo_available : tx_fifo_remaining;
+        int8_t fifo_available = SPIRIT_MAX_FIFO_LEN/2; // fill-up half fifo
+        int8_t to_send = (tx_fifo_remaining > fifo_available) ? fifo_available : tx_fifo_remaining;
 
-            tx_fifo_remaining -= to_send;
+        tx_fifo_remaining -= to_send;
 
-            /* Fill FIFO Buffer */
-            if(to_send > 0) {
-                spi_write_linear_fifo(to_send, (uint8_t*)&tx_fifo_buffer[tx_buffer_pos]);
-            }
-            tx_buffer_pos += to_send;
+        /* Fill FIFO Buffer */
+        if(to_send > 0) {
+            spi_write_linear_fifo(to_send, (uint8_t*)&tx_fifo_buffer[tx_buffer_pos]);
         }
+        tx_buffer_pos += to_send;
+    }
 #endif // !RX_FIFO_THR_WA
 
-        /* TX FIFO underflow/overflow error */
-        if(x_irq_status.IRQ_TX_FIFO_ERROR) {
+    /* TX FIFO underflow/overflow error */
+    if(x_irq_status.IRQ_TX_FIFO_ERROR) {
 #ifdef DEBUG_IRQ
-            uint32_t *tmp = (uint32_t*)&x_irq_status;
-            debug("\r\n%s (%d): irq=%x\r\n", __func__, __LINE__, *tmp);
-            debug_if(!((*tmp) & IRQ_TX_FIFO_ERROR_MASK), "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
+        uint32_t *tmp = (uint32_t*)&x_irq_status;
+        debug("\r\n%s (%d): irq=%x\r\n", __func__, __LINE__, *tmp);
+        debug_if(!((*tmp) & IRQ_TX_FIFO_ERROR_MASK), "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
 #endif
-            if(_spirit_tx_started) {
-                _spirit_tx_started = false;
-                /* call user callback */
-                if(_current_irq_callback) {
-                    _current_irq_callback(TX_ERR);
-                }
+        if(_spirit_tx_started) {
+            _spirit_tx_started = false;
+            /* call user callback */
+            if(_current_irq_callback) {
+                _current_irq_callback(TX_ERR);
             }
-
-            /* reset data still to be sent */
-            tx_fifo_remaining = 0;
         }
 
-        /* The IRQ_RX_DATA_READY notifies a new packet arrived */
-        if(x_irq_status.IRQ_RX_DATA_READY) {
+        /* reset data still to be sent */
+        tx_fifo_remaining = 0;
+    }
+
+    /* The IRQ_RX_DATA_READY notifies a new packet arrived */
+    if(x_irq_status.IRQ_RX_DATA_READY) {
 #ifdef DEBUG_IRQ
-            uint32_t *tmp = (uint32_t*)&x_irq_status;
-            debug_if(!((*tmp) & IRQ_RX_DATA_READY_MASK), "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
+        uint32_t *tmp = (uint32_t*)&x_irq_status;
+        debug_if(!((*tmp) & IRQ_RX_DATA_READY_MASK), "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
 #endif
 
-            if(!_is_receiving) { // spurious irq?!? (betzw: see comments on macro 'RX_FIFO_THR_WA'!)
+        if(!_is_receiving) { // spurious irq?!? (betzw: see comments on macro 'RX_FIFO_THR_WA'!)
 #ifdef HEAVY_DEBUG
-                debug("\r\n%s (%d): irq=%x\r\n", __func__, __LINE__, *tmp);
+            debug("\r\n%s (%d): irq=%x\r\n", __func__, __LINE__, *tmp);
 #endif
-            } else {
-                _is_receiving = false; // Finished receiving
-                stop_rx_timeout();
+        } else {
+            _is_receiving = false; // Finished receiving
+            stop_rx_timeout();
 
-                spirit_rx_len = pkt_basic_get_received_pkt_length();
+            spirit_rx_len = pkt_basic_get_received_pkt_length();
 
 #ifdef DEBUG_IRQ
-                debug_if(!(spirit_rx_len <= MAX_PACKET_LEN), "\r\n%s (%d): irq=%x\r\n", __func__, __LINE__, *tmp);
+            debug_if(!(spirit_rx_len <= MAX_PACKET_LEN), "\r\n%s (%d): irq=%x\r\n", __func__, __LINE__, *tmp);
 #endif
 
-                if(spirit_rx_len <= MAX_PACKET_LEN) {
-                    uint8_t to_receive = spirit_rx_len - _spirit_rx_pos;
-                    if(to_receive > 0) {
-                        spi_read_linear_fifo(to_receive, &spirit_rx_buf[_spirit_rx_pos]);
-                        _spirit_rx_pos += to_receive;
-                    }
+            if(spirit_rx_len <= MAX_PACKET_LEN) {
+                uint8_t to_receive = spirit_rx_len - _spirit_rx_pos;
+                if(to_receive > 0) {
+                    spi_read_linear_fifo(to_receive, &spirit_rx_buf[_spirit_rx_pos]);
+                    _spirit_rx_pos += to_receive;
                 }
-
-                cmd_strobe(SPIRIT1_STROBE_FRX);
-
-                last_rssi = qi_get_rssi(); //MGR
-                last_sqi  = qi_get_sqi();  //MGR
-
-                /* call user callback */
-                if((_spirit_rx_pos == spirit_rx_len) && _current_irq_callback) {
-                    _current_irq_callback(RX_DONE);
-                }
-
-                /* Disable handling of other RX flags */
-                x_irq_status.IRQ_RX_FIFO_ALMOST_FULL = S_RESET;
             }
+
+            cmd_strobe(SPIRIT1_STROBE_FRX);
+
+            last_rssi = qi_get_rssi(); //MGR
+            last_sqi  = qi_get_sqi();  //MGR
+
+            /* call user callback */
+            if((_spirit_rx_pos == spirit_rx_len) && _current_irq_callback) {
+                _current_irq_callback(RX_DONE);
+            }
+
+            /* Disable handling of other RX flags */
+            x_irq_status.IRQ_RX_FIFO_ALMOST_FULL = S_RESET;
         }
+    }
 
 #ifndef RX_FIFO_THR_WA
-        /* RX FIFO almost full */
-        if(x_irq_status.IRQ_RX_FIFO_ALMOST_FULL) {
+    /* RX FIFO almost full */
+    if(x_irq_status.IRQ_RX_FIFO_ALMOST_FULL) {
 #ifdef DEBUG_IRQ
-            uint32_t *tmp = (uint32_t*)&x_irq_status;
-            debug_if(!((*tmp) & IRQ_RX_FIFO_ALMOST_FULL_MASK), "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
+        uint32_t *tmp = (uint32_t*)&x_irq_status;
+        debug_if(!((*tmp) & IRQ_RX_FIFO_ALMOST_FULL_MASK), "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
 #endif
-            if(!_is_receiving) { // spurious irq?!?
+        if(!_is_receiving) { // spurious irq?!?
 #ifdef DEBUG_IRQ
-                debug("\r\n%s (%d): irq=%x\r\n", __func__, __LINE__, *tmp);
-#endif
-            } else {
-                uint8_t fifo_available = linear_fifo_read_num_elements_rx_fifo();
-                if((fifo_available + _spirit_rx_pos) <= MAX_PACKET_LEN) {
-                    spi_read_linear_fifo(fifo_available, &spirit_rx_buf[_spirit_rx_pos]);
-                    _spirit_rx_pos += fifo_available;
-                } else {
-#ifdef DEBUG_IRQ
-                    debug("\r\n%s (%d): irq=%x\r\n", __func__, __LINE__, *tmp);
-#endif
-                }
-            }
-        }
-#endif // !RX_FIFO_THR_WA
-
-        /* Reception errors */
-        if((x_irq_status.IRQ_RX_FIFO_ERROR) || (x_irq_status.IRQ_RX_DATA_DISC)) {
-#ifdef DEBUG_IRQ
-            uint32_t *tmp = (uint32_t*)&x_irq_status;
             debug("\r\n%s (%d): irq=%x\r\n", __func__, __LINE__, *tmp);
-            debug_if(!((*tmp) & (IRQ_RX_FIFO_ERROR_MASK | IRQ_RX_DATA_DISC_MASK)), "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
 #endif
-            rx_timeout_handler();
-            if(_spirit_tx_started) {
-                _spirit_tx_started = false;
-                /* call user callback */
-                if(_current_irq_callback) {
-                    _current_irq_callback(TX_ERR);
-                }
-            }
-        }
-
-        /* The IRQ_VALID_SYNC is used to notify a new packet is coming */
-        if(x_irq_status.IRQ_VALID_SYNC) {
-#ifdef DEBUG_IRQ
-            uint32_t *tmp = (uint32_t*)&x_irq_status;
-            debug_if(!((*tmp) & IRQ_VALID_SYNC_MASK), "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
-#endif
-            /* betzw - NOTE: there is a race condition between Spirit1 receiving packets and
-             *               the MCU trying to send a packet, which gets resolved in favor of
-             *               sending.
-             */
-            if(_spirit_tx_started) {
+        } else {
+            uint8_t fifo_available = linear_fifo_read_num_elements_rx_fifo();
+            if((fifo_available + _spirit_rx_pos) <= MAX_PACKET_LEN) {
+                spi_read_linear_fifo(fifo_available, &spirit_rx_buf[_spirit_rx_pos]);
+                _spirit_rx_pos += fifo_available;
+            } else {
 #ifdef DEBUG_IRQ
                 debug("\r\n%s (%d): irq=%x\r\n", __func__, __LINE__, *tmp);
 #endif
-            } else {
-                _is_receiving = true;
-                start_rx_timeout();
             }
         }
     }
+#endif // !RX_FIFO_THR_WA
+
+    /* Reception errors */
+    if((x_irq_status.IRQ_RX_FIFO_ERROR) || (x_irq_status.IRQ_RX_DATA_DISC)) {
+#ifdef DEBUG_IRQ
+        uint32_t *tmp = (uint32_t*)&x_irq_status;
+        debug("\r\n%s (%d): irq=%x\r\n", __func__, __LINE__, *tmp);
+        debug_if(!((*tmp) & (IRQ_RX_FIFO_ERROR_MASK | IRQ_RX_DATA_DISC_MASK)), "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
+#endif
+        rx_timeout_handler();
+        if(_spirit_tx_started) {
+            _spirit_tx_started = false;
+            /* call user callback */
+            if(_current_irq_callback) {
+                _current_irq_callback(TX_ERR);
+            }
+        }
+    }
+
+    /* The IRQ_VALID_SYNC is used to notify a new packet is coming */
+    if(x_irq_status.IRQ_VALID_SYNC) {
+#ifdef DEBUG_IRQ
+        uint32_t *tmp = (uint32_t*)&x_irq_status;
+        debug_if(!((*tmp) & IRQ_VALID_SYNC_MASK), "\r\nAssert failed in: %s (%d)\r\n", __func__, __LINE__);
+#endif
+        /* betzw - NOTE: there is a race condition between Spirit1 receiving packets and
+         *               the MCU trying to send a packet, which gets resolved in favor of
+         *               sending.
+         */
+        if(_spirit_tx_started) {
+#ifdef DEBUG_IRQ
+            debug("\r\n%s (%d): irq=%x\r\n", __func__, __LINE__, *tmp);
+#endif
+        } else {
+            _is_receiving = true;
+            start_rx_timeout();
+        }
+    }
+}

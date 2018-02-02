@@ -442,14 +442,7 @@ public:
     	return *_singleton;
     }
 
-    /** Create singleton instance of 'SimpleSpirit1'
-     *
-     * @param mosi 'PinName' of mosi pin to use
-     * @param miso 'PinName' of miso pin to use
-     * @param sclk 'PinName' of clock pin to use
-     * @param irq  'PinName' of interrupt pin to use
-     * @param cs   'PinName' of chip-select pin pin to use
-     * @param sdn  'PinName' of pin to use for device shutdown
+    /** Get singleton instance of 'SimpleSpirit1'
      *
      * @returns     reference to singleton instance
      */
@@ -476,6 +469,7 @@ public:
     /** Switch Radio On
      */
     int on(void);
+
     /** Switch Radio Off
      */
     int off(void);
@@ -509,9 +503,9 @@ public:
      */
     int read(void *buf, unsigned int bufsize);
 
-    /** Perform a Clear-Channel Assessment (CCA) to find out if there is a packet in the air or not.
+    /** Perform a Clear-Channel Assessment (CCA) to find out whether the medium is idle or not.
      *
-     * @returns  1 if packet has been seen.
+     * @returns  1 if the medium is busy.
      */
     int channel_clear(void);
 
