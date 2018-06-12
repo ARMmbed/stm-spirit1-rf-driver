@@ -36,7 +36,7 @@ static uint8_t stored_mac_address[8] = MBED_CONF_SPIRIT1_MAC_ADDRESS;
 #define RF_SIG_ACK_NEEDED (1<<0)
 #define RF_SIG_CB_TX_DONE (1<<1)
 #define RF_SIG_CB_RX_RCVD (1<<2)
-static Thread rf_ack_sender(osPriorityRealtime);
+static SingletonPtr<Thread> rf_ack_sender;
 static volatile uint8_t rf_rx_sequence;
 static volatile bool rf_ack_sent = false;
 static volatile bool expecting_ack = false;
@@ -88,7 +88,7 @@ static inline void rf_send_signal(int32_t signal) {
 #ifdef HEAVY_TRACING
     tr_info("%s (%d): %d", __func__, __LINE__, signal);
 #endif
-    rf_ack_sender.signal_set(signal);
+    rf_ack_sender->signal_set(signal);
 }
 
 static volatile phy_link_tx_status_e phy_status;
@@ -611,7 +611,7 @@ static void rf_ack_loop(void) {
 
     do {
         /* Wait for signal */
-        osEvent event = rf_ack_sender.signal_wait(0);
+        osEvent event = rf_ack_sender->signal_wait(0);
 
         if(event.status != osEventSignal) {
 #ifdef HEAVY_TRACING
@@ -686,18 +686,16 @@ static void rf_ack_loop(void) {
 }
 
 void NanostackRfPhySpirit1::rf_init(void) {
-#ifndef NDEBUG
     osStatus ret;
-#endif
 
     if(rf_device == NULL) {
         rf_device = &SimpleSpirit1::CreateInstance(_spi_mosi, _spi_miso, _spi_sclk, _dev_irq, _dev_cs, _dev_sdn, _brd_led);
         rf_device->attach_irq_callback(rf_callback_func);
 
-#ifndef NDEBUG
-        ret =
-#endif
-                rf_ack_sender.start(rf_ack_loop);
+        ret = rf_ack_sender->start(rf_ack_loop);
+        if (ret == osOK) {
+            rf_ack_sender->set_priority(osPriorityRealtime);
+        }
 
 #ifndef NDEBUG
         debug_if(!(ret == osOK), "\r\nassert failed in: %s (%d)\r\n", __func__, __LINE__);
