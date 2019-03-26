@@ -826,5 +826,16 @@ void NanostackRfPhySpirit1::set_mac_address(uint8_t *mac)
     rf_if_unlock();
 }
 
+#if MBED_CONF_SPIRIT1_PROVIDE_DEFAULT
+
+
+NanostackRfPhy &NanostackRfPhy::get_default_instance()
+{
+  static NanostackRfPhySpirit1 rf_phy(SPIRIT1_SPI_MOSI, SPIRIT1_SPI_MISO, SPIRIT1_SPI_SCLK, SPIRIT1_DEV_IRQ, SPIRIT1_DEV_CS, SPIRIT1_DEV_SDN, SPIRIT1_BRD_LED);
+  return rf_phy;
+}
+
+#endif // MBED_CONF_SPIRIT1_PROVIDE_DEFAULT
+
 #endif /* MBED_CONF_RTOS_PRESENT */
 #endif /* MBED_CONF_NANOSTACK_CONFIGURATION */

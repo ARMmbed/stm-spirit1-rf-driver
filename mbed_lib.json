@@ -1,7 +1,11 @@
 {
     "name": "spirit1",
     "config": {
-	"mac-address": "{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}"
+	   "mac-address": "{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}",
+        "provide-default": {
+            "help": "Provide default NanostackRfpy. [true/false]",
+            "value": false
+        }
     },
     "macros": ["USE_STM32F4XX_NUCLEO", "X_NUCLEO_IDS01A4", "SPIRIT_USE_FULL_ASSERT"]
 }
