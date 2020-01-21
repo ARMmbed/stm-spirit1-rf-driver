@@ -88,7 +88,7 @@ static inline void rf_send_signal(int32_t signal) {
 #ifdef HEAVY_TRACING
     tr_info("%s (%d): %d", __func__, __LINE__, signal);
 #endif
-    rf_ack_sender->signal_set(signal);
+    rf_ack_sender->flags_set(signal);
 }
 
 static volatile phy_link_tx_status_e phy_status;
@@ -406,7 +406,7 @@ static int8_t rf_trigger_send(uint8_t *data_ptr, uint16_t data_length, uint8_t t
 #endif
 
     /* Give 'rf_ack_sender' a better chance to run */
-    Thread::yield();
+    ThisThread::yield();
 
     /* Get Lock */
     rf_if_lock();
@@ -611,16 +611,14 @@ static void rf_ack_loop(void) {
 
     do {
         /* Wait for signal */
-        osEvent event = rf_ack_sender->signal_wait(0);
+        uint32_t signals = ThisThread::flags_wait_any(RF_SIG_ACK_NEEDED | RF_SIG_CB_TX_DONE | RF_SIG_CB_RX_RCVD);
 
-        if(event.status != osEventSignal) {
+        if(!(signals & (RF_SIG_ACK_NEEDED | RF_SIG_CB_TX_DONE | RF_SIG_CB_RX_RCVD)) {
 #ifdef HEAVY_TRACING
             tr_debug("%s (%d)", __func__, __LINE__);
 #endif
             continue;
         }
-
-        int32_t signals = event.value.signals;
 
 #ifdef HEAVY_TRACING
         tr_debug("%s (%d)", __func__, __LINE__);

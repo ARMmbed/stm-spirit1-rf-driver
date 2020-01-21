@@ -179,12 +179,12 @@ class SimpleSpirit1 {
 
     void enter_shutdown() {
     	_shut_down = 1;
-    	wait_ms(5); // wait 5 milliseconds (to allow Spirit1 to shut down)
+        ThisThread::sleep_for(5); // sleep 5 milliseconds (to allow Spirit1 to shut down)
     }
 
     void exit_shutdown() {
     	_shut_down = 0;
-    	wait_ms(10); // wait 10 milliseconds (to allow Spirit1 a proper boot-up sequence)
+        ThisThread::sleep_for(10); // sleep 10 milliseconds (to allow Spirit1 a proper boot-up sequence)
     }
 
     void cs_to_sclk_delay(void) {
