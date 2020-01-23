@@ -613,7 +613,7 @@ static void rf_ack_loop(void) {
         /* Wait for signal */
         uint32_t signals = ThisThread::flags_wait_any(RF_SIG_ACK_NEEDED | RF_SIG_CB_TX_DONE | RF_SIG_CB_RX_RCVD);
 
-        if(!(signals & (RF_SIG_ACK_NEEDED | RF_SIG_CB_TX_DONE | RF_SIG_CB_RX_RCVD)) {
+        if(!(signals & (RF_SIG_ACK_NEEDED | RF_SIG_CB_TX_DONE | RF_SIG_CB_RX_RCVD))) {
 #ifdef HEAVY_TRACING
             tr_debug("%s (%d)", __func__, __LINE__);
 #endif
